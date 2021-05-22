@@ -41,6 +41,7 @@ import static org.apache.james.mailbox.cassandra.table.Flag.SEEN;
 import static org.apache.james.mailbox.cassandra.table.Flag.USER;
 import static org.apache.james.mailbox.cassandra.table.Flag.USER_FLAGS;
 import static org.apache.james.mailbox.cassandra.table.MessageIdToImapUid.MOD_SEQ;
+import static org.apache.james.util.ReactorUtils.publishIfPresent;
 
 import java.util.Optional;
 
@@ -67,6 +68,7 @@ import com.google.common.collect.ImmutableSet;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 public class CassandraMessageIdDAO {
 
@@ -79,8 +81,9 @@ public class CassandraMessageIdDAO {
     private final PreparedStatement delete;
     private final PreparedStatement insert;
     private final PreparedStatement select;
+    private final PreparedStatement selectAll;
     private final PreparedStatement selectAllUids;
-    private final PreparedStatement selectAllUidsLimited;
+    private final PreparedStatement selectAllLimited;
     private final PreparedStatement selectUidGte;
     private final PreparedStatement selectUidGteLimited;
     private final PreparedStatement selectUidRange;
@@ -96,8 +99,9 @@ public class CassandraMessageIdDAO {
         this.insert = prepareInsert(session);
         this.update = prepareUpdate(session);
         this.select = prepareSelect(session);
+        this.selectAll = prepareSelectAll(session);
         this.selectAllUids = prepareSelectAllUids(session);
-        this.selectAllUidsLimited = prepareSelectAllUidsLimited(session);
+        this.selectAllLimited = prepareSelectAllLimited(session);
         this.selectUidGte = prepareSelectUidGte(session);
         this.selectUidGteLimited = prepareSelectUidGteLimited(session);
         this.selectUidRange = prepareSelectUidRange(session);
@@ -150,13 +154,19 @@ public class CassandraMessageIdDAO {
                 .and(eq(IMAP_UID, bindMarker(IMAP_UID))));
     }
 
-    private PreparedStatement prepareSelectAllUids(Session session) {
+    private PreparedStatement prepareSelectAll(Session session) {
         return session.prepare(select(FIELDS)
             .from(TABLE_NAME)
             .where(eq(MAILBOX_ID, bindMarker(MAILBOX_ID))));
     }
 
-    private PreparedStatement prepareSelectAllUidsLimited(Session session) {
+    private PreparedStatement prepareSelectAllUids(Session session) {
+        return session.prepare(select(IMAP_UID)
+            .from(TABLE_NAME)
+            .where(eq(MAILBOX_ID, bindMarker(MAILBOX_ID))));
+    }
+
+    private PreparedStatement prepareSelectAllLimited(Session session) {
         return session.prepare(select(FIELDS)
             .from(TABLE_NAME)
             .where(eq(MAILBOX_ID, bindMarker(MAILBOX_ID)))
@@ -248,7 +258,6 @@ public class CassandraMessageIdDAO {
     private Mono<Optional<ComposedMessageIdWithMetaData>> asOptionalOfCassandraMessageId(Mono<Row> row) {
         return row
                 .map(this::fromRowToComposedMessageIdWithFlags)
-                .map(Optional::of)
                 .defaultIfEmpty(Optional.empty());
     }
 
@@ -260,12 +269,20 @@ public class CassandraMessageIdDAO {
 
     public Flux<ComposedMessageIdWithMetaData> retrieveMessages(CassandraId mailboxId, MessageRange set, Limit limit) {
         return retrieveRows(mailboxId, set, limit)
-            .map(this::fromRowToComposedMessageIdWithFlags);
+            .map(this::fromRowToComposedMessageIdWithFlags)
+            .handle(publishIfPresent());
+    }
+
+    public Flux<MessageUid> listUids(CassandraId mailboxId) {
+        return cassandraAsyncExecutor.executeRows(selectAllUids.bind()
+                .setUUID(MAILBOX_ID, mailboxId.asUuid()))
+            .map(row -> MessageUid.of(row.getLong(IMAP_UID)));
     }
 
     public Flux<ComposedMessageIdWithMetaData> retrieveAllMessages() {
         return cassandraAsyncExecutor.executeRows(listStatement.bind())
-            .map(this::fromRowToComposedMessageIdWithFlags);
+            .map(this::fromRowToComposedMessageIdWithFlags)
+            .handle(publishIfPresent());
     }
 
     private Flux<Row> retrieveRows(CassandraId mailboxId, MessageRange set, Limit limit) {
@@ -284,10 +301,10 @@ public class CassandraMessageIdDAO {
 
     private Flux<Row> selectAll(CassandraId mailboxId, Limit limit) {
         return cassandraAsyncExecutor.executeRows(limit.getLimit()
-            .map(limitAsInt -> selectAllUidsLimited.bind()
+            .map(limitAsInt -> selectAllLimited.bind()
                 .setUUID(MAILBOX_ID, mailboxId.asUuid())
                 .setInt(LIMIT, limitAsInt))
-            .orElse(selectAllUids.bind()
+            .orElse(selectAll.bind()
                 .setUUID(MAILBOX_ID, mailboxId.asUuid())));
     }
 
@@ -315,14 +332,23 @@ public class CassandraMessageIdDAO {
                 .setLong(IMAP_UID_LTE, to.asLong())));
     }
 
-    private ComposedMessageIdWithMetaData fromRowToComposedMessageIdWithFlags(Row row) {
-        return ComposedMessageIdWithMetaData.builder()
+    private Optional<ComposedMessageIdWithMetaData> fromRowToComposedMessageIdWithFlags(Row row) {
+        if (row.getUUID(MESSAGE_ID) == null) {
+            // Out of order updates with concurrent deletes can result in the row being partially deleted
+            // We filter out such records, and cleanup them.
+            delete(CassandraId.of(row.getUUID(MAILBOX_ID)),
+                MessageUid.of(row.getLong(IMAP_UID)))
+                .subscribeOn(Schedulers.elastic())
+                .subscribe();
+            return Optional.empty();
+        }
+        return Optional.of(ComposedMessageIdWithMetaData.builder()
                 .composedMessageId(new ComposedMessageId(
                         CassandraId.of(row.getUUID(MAILBOX_ID)),
                         messageIdFactory.of(row.getUUID(MESSAGE_ID)),
                         MessageUid.of(row.getLong(IMAP_UID))))
-                .flags(new FlagsExtractor(row).getFlags())
+                .flags(FlagsExtractor.getFlags(row))
                 .modSeq(ModSeq.of(row.getLong(MOD_SEQ)))
-                .build();
+                .build());
     }
 }

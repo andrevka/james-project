@@ -24,6 +24,7 @@ import static io.restassured.config.RestAssuredConfig.newConfig;
 import static org.apache.james.jmap.HttpJmapAuthentication.authenticateJamesUser;
 import static org.apache.james.jmap.JmapURIBuilder.baseUri;
 import static org.awaitility.Awaitility.await;
+import static org.awaitility.Durations.TEN_MINUTES;
 
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
@@ -33,7 +34,7 @@ import java.util.TimerTask;
 import java.util.stream.Collectors;
 
 import org.apache.commons.net.imap.IMAPClient;
-import org.apache.james.backends.es.ReactorElasticSearchClient;
+import org.apache.james.backends.es.v7.ReactorElasticSearchClient;
 import org.apache.james.core.Username;
 import org.apache.james.jmap.AccessToken;
 import org.apache.james.jmap.draft.JmapGuiceProbe;
@@ -41,12 +42,13 @@ import org.apache.james.modules.TestDockerESMetricReporterModule;
 import org.apache.james.modules.TestJMAPServerModule;
 import org.apache.james.modules.protocols.ImapGuiceProbe;
 import org.apache.james.utils.DataProbeImpl;
-import org.awaitility.Duration;
 import org.elasticsearch.action.search.SearchRequest;
+import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.Logger;
@@ -103,6 +105,7 @@ class ESReporterTest {
     }
 
     @Test
+    @Disabled("JAMES-3492, com.linagora.elasticsearch.metrics package does not support es7")
     void timeMetricsShouldBeReportedWhenImapCommandsReceived(GuiceJamesServer server) throws Exception {
         IMAPClient client = new IMAPClient();
         client.connect(InetAddress.getLocalHost(), server.getProbe(ImapGuiceProbe.class).getImapPort());
@@ -120,11 +123,12 @@ class ESReporterTest {
         };
         timer.schedule(timerTask, DELAY_IN_MS, PERIOD_IN_MS);
 
-        await().atMost(Duration.TEN_MINUTES)
+        await().atMost(TEN_MINUTES)
             .until(this::checkMetricRecordedInElasticSearch);
     }
 
     @Test
+    @Disabled("JAMES-3492, com.linagora.elasticsearch.metrics package does not support es7")
     void timeMetricsShouldBeReportedWhenJmapRequestsReceived() {
         TimerTask timerTask = new TimerTask() {
             @Override
@@ -142,7 +146,7 @@ class ESReporterTest {
         };
         timer.schedule(timerTask, DELAY_IN_MS, PERIOD_IN_MS);
 
-        await().atMost(Duration.TEN_MINUTES)
+        await().atMost(TEN_MINUTES)
             .until(this::checkMetricRecordedInElasticSearch);
     }
 
@@ -152,7 +156,7 @@ class ESReporterTest {
                 .source(new SearchSourceBuilder()
                     .query(QueryBuilders.matchAllQuery()));
             return !Arrays.stream(client
-                    .search(searchRequest)
+                    .search(searchRequest, RequestOptions.DEFAULT)
                     .block()
                     .getHits()
                     .getHits())

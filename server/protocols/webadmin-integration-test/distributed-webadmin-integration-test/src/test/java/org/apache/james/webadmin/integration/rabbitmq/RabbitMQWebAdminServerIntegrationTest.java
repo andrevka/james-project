@@ -24,8 +24,8 @@ import static io.restassured.RestAssured.when;
 import static io.restassured.RestAssured.with;
 import static org.apache.james.webadmin.Constants.JSON_CONTENT_TYPE;
 import static org.apache.james.webadmin.Constants.SEPARATOR;
+import static org.awaitility.Durations.TEN_SECONDS;
 import static org.hamcrest.CoreMatchers.hasItems;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 
@@ -48,9 +48,7 @@ import org.apache.james.webadmin.integration.WebadminIntegrationTestModule;
 import org.apache.james.webadmin.routes.AliasRoutes;
 import org.apache.james.webadmin.routes.CassandraMappingsRoutes;
 import org.apache.james.webadmin.routes.TasksRoutes;
-import org.apache.james.webadmin.swagger.routes.SwaggerRoutes;
 import org.awaitility.Awaitility;
-import org.awaitility.Duration;
 import org.eclipse.jetty.http.HttpStatus;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -69,7 +67,8 @@ class RabbitMQWebAdminServerIntegrationTest extends WebAdminServerIntegrationTes
             .blobStore(BlobStoreConfiguration.builder()
                     .s3()
                     .disableCache()
-                    .deduplication())
+                    .deduplication()
+                    .noCryptoConfig())
             .searchConfiguration(SearchConfiguration.elasticSearch())
             .build())
         .extension(new DockerElasticSearchExtension())
@@ -104,16 +103,6 @@ class RabbitMQWebAdminServerIntegrationTest extends WebAdminServerIntegrationTes
     }
 
     @Test
-    void getLatestVersionShouldReturnTheConfiguredLatestVersion() {
-        when()
-            .get(VERSION_LATEST)
-        .then()
-            .statusCode(HttpStatus.OK_200)
-            .contentType(JSON_CONTENT_TYPE)
-            .body(is("{\"version\":" + CassandraSchemaVersionManager.MAX_VERSION.getValue() + "}"));
-    }
-
-    @Test
     void postShouldDoMigrationAndUpdateCurrentVersion() {
         String taskId = with()
             .body(String.valueOf(CassandraSchemaVersionManager.MAX_VERSION.getValue()))
@@ -127,7 +116,7 @@ class RabbitMQWebAdminServerIntegrationTest extends WebAdminServerIntegrationTes
             .body("status", is("completed"));
 
         Awaitility.await()
-            .atMost(Duration.TEN_SECONDS)
+            .atMost(TEN_SECONDS)
             .await()
             .untilAsserted(() ->
                 when()
@@ -216,49 +205,5 @@ class RabbitMQWebAdminServerIntegrationTest extends WebAdminServerIntegrationTes
             .body("additionalInformation.errors", is(0))
             .body("additionalInformation.fixedInconsistencies", hasSize(0))
             .body("additionalInformation.conflictingEntries", hasSize(0));
-    }
-
-    @Test
-    void solveMessageInconsistenciesTasksShouldBeExposed() {
-        String taskId = with().post(UPGRADE_TO_LATEST_VERSION)
-            .jsonPath()
-            .get("taskId");
-
-        with()
-            .get("/tasks/" + taskId + "/await")
-        .then()
-            .body("status", is("completed"));
-
-        taskId = with()
-            .queryParam("task", "SolveInconsistencies")
-            .post("/messages")
-            .jsonPath()
-            .get("taskId");
-
-        given()
-            .basePath(TasksRoutes.BASE)
-        .when()
-            .get(taskId + "/await")
-        .then()
-            .body("status", is("completed"))
-            .body("type", is("solve-message-inconsistencies"))
-            .body("additionalInformation.processedImapUidEntries", is(0))
-            .body("additionalInformation.processedMessageIdEntries", is(0))
-            .body("additionalInformation.addedMessageIdEntries", is(0))
-            .body("additionalInformation.updatedMessageIdEntries", is(0))
-            .body("additionalInformation.removedMessageIdEntries", is(0))
-            .body("additionalInformation.runningOptions.messagesPerSecond", is(100))
-            .body("additionalInformation.fixedInconsistencies", hasSize(0))
-            .body("additionalInformation.errors", hasSize(0));
-    }
-
-    @Test
-    void getSwaggerShouldContainDistributedEndpoints() {
-        when()
-            .get(SwaggerRoutes.SWAGGER_ENDPOINT)
-        .then()
-            .statusCode(HttpStatus.OK_200)
-            .body(containsString("\"tags\":[\"Cassandra Mappings Operations\"]"))
-            .body(containsString("{\"name\":\"MessageIdReIndexing\"}"));
     }
 }

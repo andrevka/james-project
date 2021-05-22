@@ -21,6 +21,7 @@ package org.apache.james.imapserver.netty;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.NoSuchElementException;
 
 import javax.net.ssl.SSLContext;
 
@@ -179,20 +180,23 @@ public class ImapChannelUpstreamHandler extends SimpleChannelUpstreamHandler imp
     }
 
     @Override
-    public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
+    public void messageReceived(ChannelHandlerContext ctx, MessageEvent event) throws Exception {
         try (Closeable closeable = IMAPMDCContext.from(ctx, attributes)) {
             imapCommandsMetric.increment();
             ImapSession session = (ImapSession) attributes.get(ctx.getChannel());
             ImapResponseComposer response = (ImapResponseComposer) ctx.getAttachment();
-            ImapMessage message = (ImapMessage) e.getMessage();
+            ImapMessage message = (ImapMessage) event.getMessage();
             ChannelPipeline cp = ctx.getPipeline();
 
             try {
-                if (cp.get(NettyConstants.EXECUTION_HANDLER) != null) {
-                    cp.addBefore(NettyConstants.EXECUTION_HANDLER, NettyConstants.HEARTBEAT_HANDLER, heartbeatHandler);
-                } else {
-                    cp.addBefore(NettyConstants.CORE_HANDLER, NettyConstants.HEARTBEAT_HANDLER, heartbeatHandler);
-
+                try {
+                    if (cp.get(NettyConstants.EXECUTION_HANDLER) != null) {
+                        cp.addBefore(NettyConstants.EXECUTION_HANDLER, NettyConstants.HEARTBEAT_HANDLER, heartbeatHandler);
+                    } else {
+                        cp.addBefore(NettyConstants.CORE_HANDLER, NettyConstants.HEARTBEAT_HANDLER, heartbeatHandler);
+                    }
+                } catch (IllegalArgumentException e) {
+                    LOGGER.info("heartbeat handler is already part of this pipeline", e);
                 }
                 final ResponseEncoder responseEncoder = new ResponseEncoder(encoder, response);
                 processor.process(message, responseEncoder, session);
@@ -212,10 +216,17 @@ public class ImapChannelUpstreamHandler extends SimpleChannelUpstreamHandler imp
                     throw failure;
                 }
             } finally {
-                ctx.getPipeline().remove(NettyConstants.HEARTBEAT_HANDLER);
+                try {
+                    ctx.getPipeline().remove(NettyConstants.HEARTBEAT_HANDLER);
+                } catch (NoSuchElementException e) {
+                    LOGGER.info("Heartbeat handler was concurrently removed");
+                }
+                if (message instanceof Closeable) {
+                    ((Closeable) message).close();
+                }
             }
 
-            super.messageReceived(ctx, e);
+            super.messageReceived(ctx, event);
         }
     }
 

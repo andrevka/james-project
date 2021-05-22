@@ -31,11 +31,11 @@ import javax.mail.Flags;
 
 import org.apache.james.core.Domain;
 import org.apache.james.core.Username;
+import org.apache.james.events.EventBus;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.RightManager;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
 import org.apache.james.mailbox.acl.MailboxACLResolver;
-import org.apache.james.mailbox.events.EventBus;
 import org.apache.james.mailbox.events.MailboxIdRegistrationKey;
 import org.apache.james.mailbox.exception.DifferentDomainException;
 import org.apache.james.mailbox.exception.InsufficientRightsException;
@@ -95,6 +95,13 @@ public class StoreRightManager implements RightManager {
 
     @Override
     public Rfc4314Rights myRights(MailboxPath mailboxPath, MailboxSession session) throws MailboxException {
+        if (mailboxPath.belongsTo(session)) {
+            if (mailboxSessionMapperFactory.getMailboxMapper(session).pathExists(mailboxPath).block()) {
+                return MailboxACL.FULL_RIGHTS;
+            } else {
+                throw new MailboxNotFoundException(mailboxPath);
+            }
+        }
         MailboxMapper mapper = mailboxSessionMapperFactory.getMailboxMapper(session);
         Mailbox mailbox = blockOptional(mapper.findMailboxByPath(mailboxPath))
             .orElseThrow(() -> new MailboxNotFoundException(mailboxPath));
@@ -141,6 +148,14 @@ public class StoreRightManager implements RightManager {
         MailboxMapper mapper = mailboxSessionMapperFactory.getMailboxMapper(session);
         Mailbox mailbox = blockOptional(mapper.findMailboxByPath(mailboxPath))
             .orElseThrow(() -> new MailboxNotFoundException(mailboxPath));
+        return mailbox.getACL();
+    }
+
+    @Override
+    public MailboxACL listRights(MailboxId mailboxId, MailboxSession session) throws MailboxException {
+        MailboxMapper mapper = mailboxSessionMapperFactory.getMailboxMapper(session);
+        Mailbox mailbox = blockOptional(mapper.findMailboxById(mailboxId))
+            .orElseThrow(() -> new MailboxNotFoundException(mailboxId));
         return mailbox.getACL();
     }
 

@@ -21,16 +21,15 @@ package org.apache.james;
 
 import java.util.Set;
 
+import org.apache.james.data.UsersRepositoryModuleChooser;
 import org.apache.james.eventsourcing.eventstore.cassandra.EventNestedTypes;
 import org.apache.james.json.DTOModule;
 import org.apache.james.modules.BlobExportMechanismModule;
 import org.apache.james.modules.CassandraConsistencyTaskSerializationModule;
 import org.apache.james.modules.MailboxModule;
-import org.apache.james.modules.activemq.ActiveMQQueueModule;
 import org.apache.james.modules.data.CassandraDLPConfigurationStoreModule;
 import org.apache.james.modules.data.CassandraDomainListModule;
 import org.apache.james.modules.data.CassandraJmapModule;
-import org.apache.james.modules.data.CassandraMailRepositoryModule;
 import org.apache.james.modules.data.CassandraRecipientRewriteTableModule;
 import org.apache.james.modules.data.CassandraSieveRepositoryModule;
 import org.apache.james.modules.data.CassandraUsersRepositoryModule;
@@ -44,14 +43,17 @@ import org.apache.james.modules.mailbox.CassandraMailboxModule;
 import org.apache.james.modules.mailbox.CassandraQuotaMailingModule;
 import org.apache.james.modules.mailbox.CassandraSessionModule;
 import org.apache.james.modules.mailbox.TikaMailboxModule;
+import org.apache.james.modules.mailrepository.CassandraMailRepositoryModule;
 import org.apache.james.modules.metrics.CassandraMetricsModule;
 import org.apache.james.modules.protocols.IMAPServerModule;
 import org.apache.james.modules.protocols.JMAPServerModule;
+import org.apache.james.modules.protocols.JmapEventBusModule;
 import org.apache.james.modules.protocols.LMTPServerModule;
 import org.apache.james.modules.protocols.ManageSieveServerModule;
 import org.apache.james.modules.protocols.POP3ServerModule;
 import org.apache.james.modules.protocols.ProtocolHandlerModule;
 import org.apache.james.modules.protocols.SMTPServerModule;
+import org.apache.james.modules.queue.activemq.ActiveMQQueueModule;
 import org.apache.james.modules.server.DKIMMailetModule;
 import org.apache.james.modules.server.DLPRoutesModule;
 import org.apache.james.modules.server.DataRoutesModules;
@@ -111,6 +113,7 @@ public class CassandraJamesServerMain implements JamesServerMain {
         new ProtocolHandlerModule(),
         new SMTPServerModule(),
         new JMAPServerModule(),
+        new JmapEventBusModule(),
         WEBADMIN);
 
     public static final Module PLUGINS = Modules.combine(
@@ -135,7 +138,6 @@ public class CassandraJamesServerMain implements JamesServerMain {
         new CassandraRecipientRewriteTableModule(),
         new CassandraSessionModule(),
         new CassandraSieveRepositoryModule(),
-        new CassandraUsersRepositoryModule(),
         new ElasticSearchMetricReporterModule(),
         BLOB_MODULE,
         CASSANDRA_EVENT_STORE_JSON_SERIALIZATION_DEFAULT_MODULE);
@@ -178,6 +180,8 @@ public class CassandraJamesServerMain implements JamesServerMain {
     public static GuiceJamesServer createServer(CassandraJamesServerConfiguration configuration) {
         return GuiceJamesServer.forConfiguration(configuration)
             .combineWith(ALL_BUT_JMX_CASSANDRA_MODULE)
-            .combineWith(SearchModuleChooser.chooseModules(configuration.searchConfiguration()));
+            .combineWith(SearchModuleChooser.chooseModules(configuration.searchConfiguration()))
+            .combineWith(new UsersRepositoryModuleChooser(new CassandraUsersRepositoryModule())
+                .chooseModules(configuration.getUsersRepositoryImplementation()));
     }
 }

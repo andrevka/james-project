@@ -73,6 +73,16 @@ Allowed values: https://docs.datastax.com/en/cassandra-oss/3.x/cassandra/dml/dml
 |Optional. Allows specifying the driver serial consistency level. Defaults to SERIAL.
 Allowed values: https://docs.datastax.com/en/cassandra-oss/3.x/cassandra/dml/dmlConfigConsistency.html[SERIAL or LOCAL_SERIAL]
 
+|cassandra.local.dc
+|Optional. Allows specifying the local DC as part of the load balancing policy. Specifying it
+would result in the use of `new TokenAwarePolicy(DCAwareRoundRobinPolicy.builder().withLocalDc(value).build())` as a LoadBalancingPolicy.
+This value is useful in a multi-DC Cassandra setup. Be aware of xref:../architecture/consistency-model.html#_about_multi_data_center_setups[limitation of multi-DC setups for James]
+Not specifying this value results in the driver's default load balancing policy to be used.
+
+|optimistic.consistency.level.enabled
+|Optional. Allows specifying consistency level ONE for reads in Cassandra BlobStore.
+Falls back to default read consistency level if the blob is missing. Defaults to false.
+
 |===
 
 == Pooling options
@@ -139,6 +149,20 @@ If you want more explanation about Cassandra configuration, you should visit the
 | Optional. Defaults to 0.1 (10% chance).
 Must be between 0 and 1 (inclusive). Controls the probability of doing a read-repair upon mailbox read.
 
+| mailbox.read.repair.chance
+| Optional. Defaults to 0.1 (10% chance).
+Must be between 0 and 1 (inclusive). Controls the probability of doing a read-repair upon mailbox read.
+
+| mailbox.counters.read.repair.chance.max
+| Optional. Defaults to 0.1 (10% chance).
+Must be between 0 and 1 (inclusive). Controls the probability of doing a read-repair upon mailbox counters read.
+Formula: read_repair_chance = min(mailbox.counters.read.repair.chance.max, (100/unseens)*mailbox.counters.read.repair.chance.one.hundred)
+
+| mailbox.counters.read.repair.chance.one.hundred
+| Optional. Defaults to 0.01 (1% chance).
+Must be between 0 and 1 (inclusive). Controls the probability of doing a read-repair upon mailbox counters read.
+Formula: read_repair_chance = min(mailbox.counters.read.repair.chance.max, (100/unseens)*mailbox.counters.read.repair.chance.one.hundred)
+
 | mailbox.max.retry.acl
 | Optional. Defaults to 1000.
 Controls the number of retries upon Cassandra ACL updates.
@@ -171,4 +195,24 @@ Controls the number of messages to be retrieved in parallel.
 | Optional. Defaults to 102400 (100KB).
 Controls the size of blob parts used to store messages in the Cassandra blobStore.
 
+| mailbox.read.strong.consistency
+| Optional. Boolean, defaults to true. Disabling should be considered experimental.
+If enabled, regular consistency level is used for read transactions for mailbox. Not doing so might result
+in stale reads as the system.paxos table will not be checked for latest updates. Better performance are expected
+by turning it off. Note that reads performed as part of write transactions are always performed with a strong
+consistency.
+
+| message.read.strong.consistency
+| Optional. Boolean, defaults to true. Disabling should be considered experimental.
+If enabled, regular consistency level is used for read transactions for message. Not doing so might result
+in stale reads as the system.paxos table will not be checked for latest updates. Better performance are expected
+by turning it off. Note that reads performed as part of write transactions are always performed with a strong
+consistency.
+
+| message.write.strong.consistency.unsafe
+| Optional. Boolean, defaults to true. Disabling should be considered experimental and unsafe.
+If disabled, Lightweight transactions will no longer be used upon messages operation (table `imapUidTable`).
+As message flags updates relies so far on a read-before-write model, it exposes yourself to data races leading to
+potentially update loss. Better performance are expected
+by turning it off. Reads performed as part of write transaction are also performed with a relaxed consistency.
 |===

@@ -19,6 +19,8 @@
 
 package org.apache.james.queue.rabbitmq;
 
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
+
 import java.time.Duration;
 import java.time.Instant;
 
@@ -29,10 +31,10 @@ import org.apache.james.queue.rabbitmq.view.api.DeleteCondition;
 import org.apache.james.queue.rabbitmq.view.api.MailQueueView;
 import org.apache.james.queue.rabbitmq.view.cassandra.CassandraMailQueueBrowser;
 import org.apache.mailet.Mail;
+import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.fge.lambdas.Throwing;
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
 
@@ -81,8 +83,17 @@ public class RabbitMQMailQueue implements ManageableMailQueue {
 
     @Override
     public void enQueue(Mail mail) {
-        metricFactory.runPublishingTimerMetric(ENQUEUED_TIMER_METRIC_NAME_PREFIX + name.asString(),
-            Throwing.runnable(() -> enqueuer.enQueue(mail)).sneakyThrow());
+        Mono.from(enqueueReactive(mail)).block();
+    }
+
+    @Override
+    public Publisher<Void> enqueueReactive(Mail mail) {
+        try {
+            return metricFactory.decoratePublisherWithTimerMetric(ENQUEUED_TIMER_METRIC_NAME_PREFIX + name.asString(),
+                enqueuer.enQueue(mail));
+        } catch (MailQueueException e) {
+            return Mono.error(e);
+        }
     }
 
     @Override
@@ -130,6 +141,6 @@ public class RabbitMQMailQueue implements ManageableMailQueue {
                 .thenReturn(item.getMail().getName());
 
         return mailQueueView.browseOlderThanReactive(olderThan)
-            .flatMap(requeue);
+            .flatMap(requeue, DEFAULT_CONCURRENCY);
     }
 }

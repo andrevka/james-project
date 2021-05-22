@@ -16,10 +16,176 @@ Changes to apply between 3.5.x and 3.6.x will be reported here.
 
 Change list:
 
+ - [Drop Cassandra schema version prior version 8](#drop-cassandra-schema-version-prior-version-8)
+
+### Drop Cassandra schema version prior version 8
+
+Date 05/05/2021
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-3578
+
+Concerned products: Distributed James, Cassandra-guice James server
+
+In an effort to simplify the code base, we dropped support for Cassandra schema version prior version 8.
+
+Installation running older schema version than version 5 needs to rely on releases 3.6.x to upgrade to schema version 8,
+before upgrading to an eventual newer version.
+
+## 3.6.0 version
+
+Changes to apply between 3.5.0 and 3.6.0 are reported here.
+
+Change list:
+
  - [Drop Cassandra schema version prior version 5](#drop-cassandra-schema-version-prior-version-5)
  - [mailqueue.size.metricsEnabled now defaults to false](#mailqueuesizemetricsenabled-now-defaults-to-false)
  - [LDAP users repository connection pool now defaults to false](#ldap-users-repository-connection-pool-now-defaults-to-false)
  - [Swift support has been dropped](#swift-support-has-been-dropped)
+ - [Cassandra Schema update to V8](#cassandra-schema-update-to-v8)
+ - [Cassandra Schema update to V9](#cassandra-schema-update-to-v9)
+ - [Cassandra Schema update to V10](#cassandra-schema-update-to-v10)
+ - [Recommended upgrade to Cassandra 3.11.10](#recommended-upgrade-to-cassandra-3-1110)
+ - [JMS mail queue no longer relies on java serialization](#jms-mail-queue-no-longer-relies-on-java-serialization)
+ - [CassandraUsersRepository hash algorithm changes](#cassandrausersrepository-hash-algorithm-changes)
+ - [Recommended upgrade to Elasticsearch 7.10.2](#recommended-upgrade-to-elasticsearch-7102)
+
+### CassandraUsersRepository hash algorithm changes
+
+Date: 05/03/2021
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-3512
+
+Concerned products: Cassandra Guice servers (without LDAP)
+
+Previous computation was not flushing the base64 encoding stream resulting in the 2 last characters of the base64 
+string being omitted, causing inter-operability issues when synchronizing password hash with external systems.
+
+New digest algorithm closes the base64 encoding stream resulting in a breaking change forcing user to reset their 
+password.
+
+If you wish to avoid this breaking change you can add the `hashingMode` configuration option in `usersrepository.xml` 
+configuration file, with the value `legacy`, which will ensure previous behaviour.
+
+Example `usersrepository.xml`:
+
+```
+<usersrepository>
+    <algorithm>SHA-512-legacy</algorithm>
+    <hashingMode>legacy</hashingMode>
+    <!-- ... -->
+</usersrepository>
+```
+
+### Recommended upgrade to Elasticsearch 7.10.2
+
+Date: 11/03/2021
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-3492
+
+Concerned products: Cassandra Guice server (with and without rabbitMQ)
+
+James is no longer compatible with Elasticsearch 6.x. The new environment uses Elasticsearch 7.10.2 and users are recommended to upgrade to this
+version as well.
+
+This [link](https://www.elastic.co/guide/en/elasticsearch/reference/7.x/rolling-upgrades.html) describes a possible update procedure:
+
+Updating from Elasticsearch < 6.8 needs an extra step of shutting down the cluster and restarting it after each node is upgraded
+
+- Test the upgrade in dev environment first
+- Take a backup of the cluster
+- On each node, perform a rolling update
+- Disable shard allocation
+- Stop non-essential indexing and perform a synced flush this node
+- Shut down this node.
+- Upgrade the node you shut down
+- Upgrade any plugins
+- Start the upgraded node
+- Reenable shard allocation
+- Wait for the node to recover
+- Repeat for other nodes
+
+### JMS mail queue no longer relies on java serialization
+
+Date: 07/12/2020
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-2578
+
+Concerned products: Spring server, JPA Guice servers, Cassandra Guice server (without rabbitMQ)
+
+Java serialization is unsafe and leads to countless vulnerability issues. We removed the remaining usages as part of the
+JMS and ActiveMQ mail queues.
+
+In order to do so, we introduced a breaking change in the message format.
+
+Upgrades should be done with an empty mail queue. To do so:
+ - Switch off incoming SMTP + JMAP traffic (external load balancing or restarting with dis-activated SMTP service)
+ - Flush your MailQueues
+ - Await the mail processing to finish, monitoring the size of your mail queue
+ - Upgrade, then restart SMTP + JMAP traffic
+
+### Recommended upgrade to Cassandra 3.11.10
+
+Date: 15/02/2021
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-2514
+
+Concerned products: Cassandra Guice server (with and without rabbitMQ)
+
+James is no longer tested against Cassandra 3.11.3 but instead against Cassandra 3.11.10. Users are recommended to upgrade to this
+version as well.
+
+This [link](https://www.instaclustr.com/support/documentation/cassandra/cassandra-cluster-operations/cassandra-version-upgrades/#) describes a possible update procedure:
+
+ - Take a backup of the cluster
+ - On each node, perform a rolling update
+ - For each node flush the data (`nodetool flush`)
+ - Stop C* on this nod and upgrade to target version (approx 5-10 minutes duration)
+ - Start upgraded C* on this node.
+ - Confirm the application behaves normally
+ - Upgrade remaining nodes
+ - No upgradesstables is required for this minor version
+ - Perform final verifications.
+
+### Cassandra Schema update to V10
+
+Date 05/12/2020
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-3435
+
+Concerned product: Distributed James
+
+Handles Mailbox ACL transactionality with event-sourcing. We got read of SERIAL consistency upon reads thus unlocking a
+major performance enhancement.
+
+In order to benefit from this work, you need to [upgrade to the latest schema version](https://github.com/apache/james-project/blob/master/src/site/markdown/server/manage-webadmin.md#upgrading-to-the-latest-version).
+
+A James restart is advised after this migration in order to skip schema version reads.
+
+### Cassandra Schema update to V9
+
+Date 20/10/2020
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-3430
+
+Concerned product: Distributed James
+
+Adopt a more compact representation for message properties. This improves performance of the Cassandra mailbox.
+
+In order to benefit from this work, you need to [upgrade to the latest schema version](https://github.com/apache/james-project/blob/master/src/site/markdown/server/manage-webadmin.md#upgrading-to-the-latest-version).
+
+### Cassandra Schema update to V8
+
+Date 13/10/2020
+
+JIRA: https://issues.apache.org/jira/browse/JAMES-3409
+
+Concerned product: Distributed James
+
+Add UID_VALIDITY to mailboxPath table in order not to mandate mailbox table reads. This improves performance of the Cassandra mailbox.
+
+In order to benefit from this work, you need to [upgrade to the latest schema version](https://github.com/apache/james-project/blob/master/src/site/markdown/server/manage-webadmin.md#upgrading-to-the-latest-version).
+
+A James restart is advised after this migration in order to skip schema version reads.
 
 ### Swift support has been dropped
 

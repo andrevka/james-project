@@ -120,6 +120,16 @@
 
         <dt><strong>mailbox.read.repair.chance</strong></dt>
         <dd>Optional. Defaults to 0.1 (10% chance).<br/> Must be between 0 and 1 (inclusive). Controls the probability of doing a read-repair upon mailbox read.</dd>
+        <dt><strong>mailbox.counters.read.repair.chance.max</strong></dt>
+        <dd>Optional. Defaults to 0.1 (10% chance).<br/>
+            Must be between 0 and 1 (inclusive). Controls the probability of doing a read-repair upon mailbox counters read.<br/>
+            Formula: read_repair_chance = min(mailbox.counters.read.repair.chance.max, (100/unseens)*mailbox.counters.read.repair.chance.one.hundred)
+        </dd>
+        <dt><strong>mailbox.counters.read.repair.chance.one.hundred</strong></dt>
+        <dd>Optional. Defaults to 0.01 (1% chance).<br/>
+            Must be between 0 and 1 (inclusive). Controls the probability of doing a read-repair upon mailbox counters read.<br/>
+            Formula: read_repair_chance = min(mailbox.counters.read.repair.chance.max, (100/unseens)*mailbox.counters.read.repair.chance.one.hundred)
+        </dd>
         <dt><strong>mailbox.max.retry.acl</strong></dt>
         <dd>Optional. Defaults to 1000.<br/> Controls the number of retries upon Cassandra ACL updates.</dd>
         <dt><strong>mailbox.max.retry.modseq</strong></dt>
@@ -139,11 +149,40 @@
         <dt><strong>mailbox.blob.part.size</strong></dt>
         <dd>Optional. Defaults to 102400 (100KB).<br/> Controls the size of blob parts used to store messages.</dd>
 
+        <dt><strong>mailbox.read.strong.consistency</strong></dt>
+        <dd>Optional. Boolean, defaults to true. Disabling should be considered experimental.
+            If enabled, regular consistency level is used for read transactions for mailbox. Not doing so might result
+            in stale reads as the system.paxos table will not be checked for latest updates. Better performance are expected
+            by turning it off. Note that reads performed as part of write transactions are always performed with a strong
+            consistency.</dd>
+
+        <dt><strong>message.read.strong.consistency</strong></dt>
+        <dd>Optional. Boolean, defaults to true. Disabling should be considered experimental.
+            If enabled, regular consistency level is used for read transactions for message. Not doing so might result
+            in stale reads as the system.paxos table will not be checked for latest updates. Better performance are expected
+            by turning it off. Note that reads performed as part of write transactions are always performed with a strong
+            consistency.</dd>
+
+        <dt><strong>message.write.strong.consistency.unsafe</strong></dt>
+        <dd>Optional. Boolean, defaults to true. Disabling should be considered experimental and unsafe.
+            If disabled, Lightweight transactions will no longer be used upon messages operation (table `imapUidTable`).
+            As message flags updates relies so far on a read-before-write model, it exposes yourself to data races leading to
+            potentially update loss. Better performance are expected
+            by turning it off. Reads performed as part of write transaction are also performed with a relaxed consistency.</dd>
+
         <dt><strong>Allows specifying the driver default consistency level.</strong></dt>
         <dt><strong>cassandra.consistency_level.regular</strong></dt>
         <dd>Optional. Defaults to QUORUM.<br/> <a href="https://docs.datastax.com/en/cassandra-oss/3.x/cassandra/dml/dmlConfigConsistency.html">QUORUM, LOCAL_QUORUM, or EACH_QUORUM</a>.</dd>
         <dt><strong>cassandra.consistency_level.lightweight_transaction</strong></dt>
         <dd>Optional. Defaults to SERIAL.<br/> <a href="https://docs.datastax.com/en/cassandra-oss/3.x/cassandra/dml/dmlConfigConsistency.html">SERIAL or LOCAL_SERIAL</a>.</dd>
+        <dt><strong>cassandra.local.dc</strong></dt>
+        <dd>Optional. Allows specifying the local DC as part of the load balancing policy. Specifying it
+            would result in the use of <code>new TokenAwarePolicy(DCAwareRoundRobinPolicy.builder().withLocalDc(value).build())</code> as a LoadBalancingPolicy.
+            This value is useful in a multi-DC Cassandra setup. Be aware of limitations of multi-DC setups for James.
+            Not specifying this value results in the driver's default load balancing policy to be used.</dd>
+        <dt><strong>optimistic.consistency.level.enabled</strong></dt>
+        <dd>Optional. Defaults to false. Allows specifying consistency level ONE for reads in Cassandra BlobStore.
+            Falls back to default read consistency level if the blob is missing.</dd>
       </dl>
 
 
@@ -169,6 +208,8 @@
     Here are the implemented migrations:
 
     <subsection name="From V1 to V2">
+
+      <p>Last support on releases 3.5.0</p>
 
       <p>Migration tag on git repository: <a href="https://github.com/apache/james-project/releases/tag/cassandra_migration_v1_to_v2">cassandra_migration_v1_to_v2</a></p>
 
@@ -196,6 +237,8 @@
 
     <subsection name="From V2 to V3">
 
+      <p>Last support on releases 3.5.0</p>
+
       <p>Migration tag on git repository: <a href="https://github.com/apache/james-project/releases/tag/cassandra_migration_v2_to_v3">cassandra_migration_v2_to_v3</a></p>
 
       <p>Goal is to drop <b>message</b> table. After this migration, one can manually delete this table.</p>
@@ -203,6 +246,8 @@
     </subsection>
 
     <subsection name="From V3 to V4">
+
+      <p>Last support on releases 3.5.0</p>
 
       <p>Migration tag on git repository: <a href="https://github.com/apache/james-project/releases/tag/cassandra_migration_v3_to_v4">cassandra_migration_v3_to_v4</a></p>
 
@@ -219,6 +264,8 @@
 
     <subsection name="From V4 to V5">
 
+      <p>Last support on releases 3.5.0</p>
+
       <p>Migration tag on git repository: <a href="https://github.com/apache/james-project/releases/tag/cassandra_migration_v4_to_v5">cassandra_migration_v4_to_v5</a></p>
 
       <p>Goal is to store attachment ids in the separated AttachmentMessageId table.</p>
@@ -234,16 +281,41 @@
 
     <subsection name="From V5 to V6">
 
+      <p>Last support on releases 3.6.x</p>
+
       <p>Goal is to no longer rely on an UDT partition key for mailboxPath tables. Entries will be migrated to mailboxPathV2 table relying on a composite primary key</p>
 
     </subsection>
 
     <subsection name="From V6 to V7">
 
+      <p>Last support on releases 3.6.x</p>
+
       <p>Goal is to populate mapping_sources projection table. This table allows finding the source of a given redirection, which is
       handy for things like mail aliases (I want to list aliases rewritting things to bob). Without this projection table being available,
       (ie we rely on schema version 6 or less) such information is obtained through a full table scan, unoptimized. From schema version 7,
       the optimized projection can safely be used.</p>
+
+    </subsection>
+
+    <subsection name="From V7 to V8">
+
+      <p>Last support on releases 3.6.x</p>
+
+      <p>Add UID_VALIDITY to mailboxPath table in order not to mandate mailbox table reads.</p>
+
+    </subsection>
+
+    <subsection name="From V8 to V9">
+
+      <p>Adopt a more compact representation for message properties.</p>
+
+    </subsection>
+
+    <subsection name="From V9 to V10">
+
+      <p>Handles Mailbox ACL transactionality with event-sourcing. We got read of SERIAL consistency upon reads thus unlocking a
+          major performance enhancement.</p>
 
     </subsection>
 

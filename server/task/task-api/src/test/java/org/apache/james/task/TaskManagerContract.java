@@ -22,9 +22,8 @@ package org.apache.james.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.awaitility.Duration.FIVE_SECONDS;
-import static org.awaitility.Duration.ONE_HUNDRED_MILLISECONDS;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -32,22 +31,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.assertj.core.api.SoftAssertions;
 import org.awaitility.Awaitility;
-import org.awaitility.Duration;
 import org.awaitility.core.ConditionFactory;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 
 public interface TaskManagerContract {
     java.time.Duration UPDATE_INFORMATION_POLLING_INTERVAL = java.time.Duration.ofSeconds(1);
-    Duration slowPacedPollInterval = ONE_HUNDRED_MILLISECONDS;
+    Duration slowPacedPollInterval = Duration.ofMillis(100);
     ConditionFactory calmlyAwait = Awaitility.with()
         .pollInterval(slowPacedPollInterval)
         .and()
         .with()
         .pollDelay(slowPacedPollInterval)
         .await();
-    ConditionFactory awaitAtMostFiveSeconds = calmlyAwait.atMost(FIVE_SECONDS);
-    java.time.Duration TIMEOUT = java.time.Duration.ofMillis(Long.MAX_VALUE);
+    ConditionFactory awaitAtMostTwoSeconds = calmlyAwait.atMost(Duration.ofSeconds(2));
+    java.time.Duration TIMEOUT = java.time.Duration.ofMinutes(15);
 
     TaskManager taskManager();
 
@@ -142,7 +140,7 @@ public interface TaskManagerContract {
         awaitUntilTaskHasStatus(id, TaskManager.Status.IN_PROGRESS, taskManager);
         taskManager.cancel(id);
 
-        awaitAtMostFiveSeconds.untilAsserted(() ->
+        awaitAtMostTwoSeconds.untilAsserted(() ->
             assertThat(taskManager.getExecutionDetails(id).getStatus())
                 .isIn(TaskManager.Status.CANCELLED, TaskManager.Status.CANCEL_REQUESTED));
 
@@ -285,7 +283,7 @@ public interface TaskManagerContract {
 
         awaitUntilTaskHasStatus(id, TaskManager.Status.IN_PROGRESS, taskManager);
 
-        calmlyAwait.atMost(FIVE_SECONDS).untilAsserted(() ->
+        calmlyAwait.atMost(Duration.ofSeconds(5)).untilAsserted(() ->
             assertThat(getAdditionalInformation(taskManager, id).getCount()).isEqualTo(1L));
     }
 
@@ -301,7 +299,7 @@ public interface TaskManagerContract {
 
         awaitUntilTaskHasStatus(id, TaskManager.Status.IN_PROGRESS, taskManager);
 
-        calmlyAwait.atMost(FIVE_SECONDS).untilAsserted(() ->
+        calmlyAwait.atMost(Duration.ofSeconds(5)).untilAsserted(() ->
             assertThat(getAdditionalInformation(taskManager, id).getCount()).isEqualTo(1L));
         assertThat(getAdditionalInformation(otherTaskManager, id).getCount()).isEqualTo(1L);
     }
@@ -575,7 +573,7 @@ public interface TaskManagerContract {
             return Task.Result.COMPLETED;
         }));
 
-        awaitAtMostFiveSeconds.until(() -> queue.contains(6));
+        awaitAtMostTwoSeconds.until(() -> queue.contains(6));
 
         assertThat(queue)
             .containsExactly(1, 2, 3, 4, 5, 6);
@@ -600,6 +598,6 @@ public interface TaskManagerContract {
     }
 
     default void awaitUntilTaskHasStatus(TaskId id, TaskManager.Status status, TaskManager taskManager) {
-        awaitAtMostFiveSeconds.until(() -> taskManager.getExecutionDetails(id).getStatus(), Matchers.equalTo(status));
+        awaitAtMostTwoSeconds.until(() -> taskManager.getExecutionDetails(id).getStatus(), Matchers.equalTo(status));
     }
 }

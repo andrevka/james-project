@@ -28,7 +28,7 @@ import static io.restassured.config.RestAssuredConfig.newConfig;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static org.apache.james.mock.smtp.server.Fixture.JSON_BEHAVIORS;
 import static org.apache.james.mock.smtp.server.Fixture.JSON_MAIL;
-import static org.apache.james.mock.smtp.server.Fixture.JSON_MAILS_LIST;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 
 import java.nio.charset.StandardCharsets;
@@ -76,6 +76,15 @@ class HTTPConfigurationServerTest {
             .then()
                 .contentType(ContentType.JSON)
                 .body(".", hasSize(0));
+        }
+
+        @Test
+        void shouldExposeVersion() {
+            given()
+                .basePath("/version")
+                .get()
+            .then()
+                .body(equalTo("0.4"));
         }
 
         @Test
@@ -202,7 +211,35 @@ class HTTPConfigurationServerTest {
 
             assertThatJson(response)
                 .withOptions(new Options(Option.TREATING_NULL_AS_ABSENT, Option.IGNORING_ARRAY_ORDER))
-                .isEqualTo(JSON_MAILS_LIST);
+                .isEqualTo("[{" +
+                    "    \"from\": \"bob@james.org\"," +
+                    "    \"mailParameters\": [{" +
+                    "        \"name\": \"param3\"," +
+                    "        \"value\": \"value3\"" +
+                    "    }]," +
+                    "    \"message\": \"bob to alice and jack\"," +
+                    "    \"recipients\": [{" +
+                    "        \"address\": \"alice@james.org\"," +
+                    "        \"parameters\": []" +
+                    "    }, {" +
+                    "        \"address\": \"jack@james.org\"," +
+                    "        \"parameters\": [{" +
+                    "            \"name\": \"param1\"," +
+                    "            \"value\": \"value1\"" +
+                    "        }, {" +
+                    "            \"name\": \"param2\"," +
+                    "            \"value\": \"value2\"" +
+                    "        }]" +
+                    "    }]" +
+                    "}, {" +
+                    "    \"from\": \"alice@james.org\"," +
+                    "    \"mailParameters\": []," +
+                    "    \"message\": \"alice to bob\"," +
+                    "    \"recipients\": [{" +
+                    "        \"address\": \"bob@james.org\"," +
+                    "        \"parameters\": []" +
+                    "    }]" +
+                    "}]");
         }
 
         @Test

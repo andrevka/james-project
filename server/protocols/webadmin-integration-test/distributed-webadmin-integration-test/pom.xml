@@ -23,7 +23,7 @@
     <parent>
         <groupId>org.apache.james</groupId>
         <artifactId>webadmin-integration-test</artifactId>
-        <version>3.6.0-SNAPSHOT</version>
+        <version>3.7.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -47,7 +47,7 @@
         </dependency>
         <dependency>
             <groupId>${james.groupId}</groupId>
-            <artifactId>apache-james-mailbox-elasticsearch</artifactId>
+            <artifactId>apache-james-mailbox-elasticsearch-v7</artifactId>
             <type>test-jar</type>
             <scope>test</scope>
         </dependency>
@@ -97,13 +97,33 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Xms512m -Xmx1024m</argLine>
+                    <argLine>-Xms1024m -Xmx4096m</argLine>
                     <reuseForks>true</reuseForks>
                     <!-- Fail tests longer than 20 minutes, prevent form random locking tests -->
                     <forkedProcessTimeoutInSeconds>1200</forkedProcessTimeoutInSeconds>
-                    <groups combine.self="override">BasicFeature</groups>
+                    <groups combine.self="override">BasicFeature&amp;!unstable</groups>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>unstable-tests</id>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-surefire-plugin</artifactId>
+                            <version>2.22.2</version>
+                            <configuration>
+                                <excludedGroups />
+                                <groups combine.self="override">BasicFeature&amp;unstable</groups>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+    </profiles>
 </project>

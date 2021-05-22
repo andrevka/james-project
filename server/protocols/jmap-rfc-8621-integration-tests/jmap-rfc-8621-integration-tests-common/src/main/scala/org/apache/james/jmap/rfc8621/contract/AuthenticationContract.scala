@@ -28,6 +28,7 @@ import org.apache.james.GuiceJamesServer
 import org.apache.james.jmap.rfc8621.contract.Fixture.{ACCEPT_RFC8621_VERSION_HEADER, ALICE, ALICE_PASSWORD, AUTHORIZATION_HEADER, BOB, BOB_BASIC_AUTH_HEADER, BOB_PASSWORD, DOMAIN, DOMAIN_WITH_SPACE, ECHO_REQUEST_OBJECT, INVALID_JWT_TOKEN, UNKNOWN_USER_TOKEN, USER_TOKEN, getHeadersWith, toBase64, _}
 import org.apache.james.jmap.rfc8621.contract.tags.CategoryTags
 import org.apache.james.utils.DataProbeImpl
+import org.hamcrest.Matchers.{containsString, equalTo}
 import org.junit.jupiter.api.{BeforeAll, Nested, Tag, Test}
 
 object AuthenticationContract {
@@ -61,6 +62,8 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_BAD_REQUEST)
+        .body("status", equalTo(400))
+        .body("detail", containsString("Only one set of credential is allowed"))
     }
   }
 
@@ -75,6 +78,10 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_UNAUTHORIZED)
+        .header("WWW-Authenticate", "Basic realm=\"simple\", Bearer realm=\"JWT\"")
+        .body("status", equalTo(401))
+        .body("type", equalTo("about:blank"))
+        .body("detail", equalTo("No valid authentication methods provided"))
     }
 
     @Test
@@ -99,6 +106,9 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_UNAUTHORIZED)
+        .body("status", equalTo(401))
+        .body("type", equalTo("about:blank"))
+        .body("detail", equalTo("Username is not valid"))
     }
 
     @Test
@@ -123,6 +133,9 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_UNAUTHORIZED)
+        .body("status", equalTo(401))
+        .body("type", equalTo("about:blank"))
+        .body("detail", equalTo("No valid authentication methods provided"))
     }
 
     @Test
@@ -135,6 +148,9 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_UNAUTHORIZED)
+        .body("status", equalTo(401))
+        .body("type", equalTo("about:blank"))
+        .body("detail", equalTo("No valid authentication methods provided"))
     }
 
     @Test
@@ -148,6 +164,9 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_UNAUTHORIZED)
+        .body("status", equalTo(401))
+        .body("type", equalTo("about:blank"))
+        .body("detail", equalTo("No valid authentication methods provided"))
     }
   }
 
@@ -176,6 +195,9 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_UNAUTHORIZED)
+        .body("status", equalTo(401))
+        .body("type", equalTo("about:blank"))
+        .body("detail", equalTo("Failed Jwt verification"))
     }
 
     @Test
@@ -188,6 +210,9 @@ trait AuthenticationContract {
         .post
       .`then`
         .statusCode(SC_UNAUTHORIZED)
+        .body("status", equalTo(401))
+        .body("type", equalTo("about:blank"))
+        .body("detail", equalTo("Failed Jwt verification"))
     }
   }
 }

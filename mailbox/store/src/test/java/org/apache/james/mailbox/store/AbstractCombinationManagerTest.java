@@ -53,6 +53,8 @@ import org.junit.jupiter.api.Test;
 import com.google.common.collect.ImmutableList;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 public abstract class AbstractCombinationManagerTest {
 
@@ -114,7 +116,7 @@ public abstract class AbstractCombinationManagerTest {
 
         messageIdManager.setInMailboxes(messageId, ImmutableList.of(mailbox1.getMailboxId(), mailbox2.getMailboxId()), session);
 
-        assertThat(messageManager2.search(query, session)).hasSize(1);
+        assertThat(Flux.from(messageManager2.search(query, session)).toStream()).hasSize(1);
     }
 
     @Test
@@ -131,7 +133,7 @@ public abstract class AbstractCombinationManagerTest {
             .get(0)
             .getUid();
 
-        assertThat(messageManager2.search(query, session)).hasSize(1)
+        assertThat(Flux.from(messageManager2.search(query, session)).toStream()).hasSize(1)
             .containsExactly(uidInMailbox2);
     }
 
@@ -144,7 +146,7 @@ public abstract class AbstractCombinationManagerTest {
         messageIdManager.setInMailboxes(composedMessageId.getMessageId(),
             ImmutableList.of(mailbox1.getMailboxId(), mailbox2.getMailboxId()), session);
 
-        assertThat(messageManager1.search(query, session)).hasSize(1)
+        assertThat(Flux.from(messageManager1.search(query, session)).toStream()).hasSize(1)
             .containsExactly(composedMessageId.getUid());
     }
 
@@ -508,7 +510,7 @@ public abstract class AbstractCombinationManagerTest {
             .getUid();
 
         SearchQuery searchQuery = SearchQuery.of(SearchQuery.all());
-        assertThat(messageManager2.search(searchQuery, session))
+        assertThat(Flux.from(messageManager2.search(searchQuery, session)).toStream())
             .hasSize(1)
             .containsOnly(uid2);
     }
@@ -522,7 +524,7 @@ public abstract class AbstractCombinationManagerTest {
         messageIdManager.delete(messageId, ImmutableList.of(mailbox1.getMailboxId()), session);
 
         SearchQuery searchQuery = SearchQuery.of(SearchQuery.all());
-        assertThat(messageManager1.search(searchQuery, session)).isEmpty();
+        assertThat(Flux.from(messageManager1.search(searchQuery, session)).toStream()).isEmpty();
     }
 
     @Test
@@ -534,10 +536,12 @@ public abstract class AbstractCombinationManagerTest {
             .appendMessage(MessageManager.AppendCommand.from(mailContent), session)
             .getId().getMessageId();
 
-        messageIdManager.delete(ImmutableList.of(messageId1, messageId2), session);
+        Mono.from(messageIdManager.delete(ImmutableList.of(messageId1, messageId2), session))
+            .subscribeOn(Schedulers.elastic())
+            .block();
 
         SearchQuery searchQuery = SearchQuery.of(SearchQuery.all());
-        assertThat(messageManager1.search(searchQuery, session)).isEmpty();
+        assertThat(Flux.from(messageManager1.search(searchQuery, session)).toStream()).isEmpty();
     }
 
     private Predicate<MessageResult> messageInMailbox2() {

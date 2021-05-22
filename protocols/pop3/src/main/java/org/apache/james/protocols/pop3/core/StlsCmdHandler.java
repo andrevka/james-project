@@ -23,12 +23,18 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
 
+import javax.inject.Inject;
+
+import org.apache.james.metrics.api.MetricFactory;
 import org.apache.james.protocols.api.Request;
 import org.apache.james.protocols.api.Response;
 import org.apache.james.protocols.api.handler.CommandHandler;
 import org.apache.james.protocols.pop3.POP3Response;
 import org.apache.james.protocols.pop3.POP3Session;
 import org.apache.james.protocols.pop3.POP3StartTlsResponse;
+import org.apache.james.util.MDCBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -37,14 +43,31 @@ import com.google.common.collect.ImmutableSet;
  * with the STSL command
  */
 public class StlsCmdHandler implements CommandHandler<POP3Session>, CapaCapability {
-
+    private static final Logger LOGGER = LoggerFactory.getLogger(StlsCmdHandler.class);
     private static final Collection<String> COMMANDS = ImmutableSet.of("STLS");
     private static final Set<String> CAPS = ImmutableSet.of("STLS");
 
     private static final Response BEGIN_TLS = new POP3StartTlsResponse(POP3Response.OK_RESPONSE, "Begin TLS negotiation").immutable();
 
+    private final MetricFactory metricFactory;
+
+    @Inject
+    public StlsCmdHandler(MetricFactory metricFactory) {
+        this.metricFactory = metricFactory;
+    }
+
     @Override
     public Response onCommand(POP3Session session, Request request) {
+        return metricFactory.decorateSupplierWithTimerMetric("pop3-stls", () ->
+            MDCBuilder.withMdc(
+                MDCBuilder.create()
+                    .addContext(MDCBuilder.ACTION, "START_TLS")
+                    .addContext(MDCConstants.withSession(session)),
+                () -> stls(session)));
+    }
+
+    private Response stls(POP3Session session) {
+        LOGGER.trace("STLS command received");
         // check if starttls is supported, the state is the right one and it was
         // not started before
         if (session.isStartTLSSupported() && session.getHandlerState() == POP3Session.AUTHENTICATION_READY && session.isTLSStarted() == false) {

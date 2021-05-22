@@ -86,6 +86,31 @@ class CassandraMessageIdDAOTest {
     }
 
     @Test
+    void outOfOrderUpdatesShouldBeIgnored() {
+        CassandraId mailboxId = CassandraId.timeBased();
+        MessageUid messageUid = MessageUid.of(1);
+        CassandraMessageId messageId = messageIdFactory.generate();
+        testee.insert(ComposedMessageIdWithMetaData.builder()
+                .composedMessageId(new ComposedMessageId(mailboxId, messageId, messageUid))
+                .flags(new Flags())
+                .modSeq(ModSeq.of(1))
+                .build())
+            .block();
+
+        testee.delete(mailboxId, messageUid).block();
+
+        testee.updateMetadata(ComposedMessageIdWithMetaData.builder()
+                .composedMessageId(new ComposedMessageId(mailboxId, messageId, messageUid))
+                .flags(new Flags(org.apache.james.mailbox.cassandra.table.Flag.ANSWERED))
+                .modSeq(ModSeq.of(2))
+                .build())
+            .block();
+
+        Optional<ComposedMessageIdWithMetaData> message = testee.retrieve(mailboxId, messageUid).block();
+        assertThat(message.isPresent()).isFalse();
+    }
+
+    @Test
     void deleteShouldDeleteOnlyConcernedRowWhenMultipleRowExists() {
         CassandraId mailboxId = CassandraId.timeBased();
         MessageUid messageUid = MessageUid.of(1);

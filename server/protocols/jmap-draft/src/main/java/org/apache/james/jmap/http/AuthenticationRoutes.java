@@ -123,7 +123,7 @@ public class AuthenticationRoutes implements JMAPRoutes {
     }
 
     private Mono<Void> post(HttpServerRequest request, HttpServerResponse response) {
-        return Mono.from(metricFactory.decoratePublisherWithTimerMetricLogP99("JMAP-authentication-post",
+        return Mono.from(metricFactory.decoratePublisherWithTimerMetric("JMAP-authentication-post",
             Mono.just(request)
                 .map(this::assertJsonContentType)
                 .map(this::assertAcceptJsonOnly)
@@ -213,18 +213,27 @@ public class AuthenticationRoutes implements JMAPRoutes {
                     throw new BadRequestException("Request can't be deserialized", e);
                 }
             })
-            .switchIfEmpty(Mono.error(new BadRequestException("Empty body")));
+            .switchIfEmpty(Mono.error(() -> new BadRequestException("Empty body")));
     }
 
     private Mono<Void> handleContinuationTokenRequest(ContinuationTokenRequest request, HttpServerResponse resp) {
         try {
-            ContinuationTokenResponse continuationTokenResponse = ContinuationTokenResponse
+            Mono<String> tokenResponseMono = Mono.fromCallable(() -> ContinuationTokenResponse
                 .builder()
                 .continuationToken(simpleTokenFactory.generateContinuationToken(request.getUsername()))
                 .methods(ContinuationTokenResponse.AuthenticationMethod.PASSWORD)
-                .build();
+                .build())
+                .map(token -> {
+                    try {
+                        return mapper.writeValueAsString(token);
+                    } catch (JsonProcessingException e) {
+                        throw new InternalErrorException("error serialising JMAP API response json");
+                    }
+                })
+                .subscribeOn(Schedulers.parallel());
+
             return resp.header(CONTENT_TYPE, JSON_CONTENT_TYPE_UTF8)
-                .sendString(Mono.just(mapper.writeValueAsString(continuationTokenResponse)))
+                .sendString(tokenResponseMono)
                 .then();
         } catch (Exception e) {
             throw new InternalErrorException("Error while responding to continuation token", e);

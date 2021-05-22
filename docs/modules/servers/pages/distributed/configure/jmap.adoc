@@ -29,6 +29,29 @@ This should not be the same keystore than the ones used by TLS based protocols.
 | jwt.publickeypem.url
 | Optional. JWT tokens allow request to bypass authentication
 
+| url.prefix
+| Optional. Configuration urlPrefix for JMAP routes.
+| Default value: http://localhost.
+
+| websocket.url.prefix
+| Optional. URL for JMAP WebSocket route.
+| Default value: ws://localhost
+
+| upload.max.size
+| Optional. Configuration max size Upload in new JMAP-RFC-8621.
+| Default value: 30M. Supported units are B (bytes) K (KB) M (MB) G (GB).
+
+| view.email.query.enabled
+| Optional boolean. Defaults to false.
+| Should simple Email/query be resolved against a Cassandra projection, or should we resolve them against ElasticSearch?
+This enables a higher resilience, but the projection needs to be correctly populated.
+
+| jmap.version.default
+| Optional string. Defaults to draft. Allowed values: draft, rfc-8621.
+| Which version of the JMAP protocol should be served when none supplied in the Accept header.
+Defaults to draft for legacy reasons (avoid breaking changes) but setting the value to
+rfc-8621 allow compatibility with other third party apps.
+
 |===
 
 == Wire tapping
@@ -58,3 +81,23 @@ This token can then be passed as `Bearer` of the `Authorization` header :
     curl -H "Authorization: Bearer $token" -XPOST http://127.0.0.1:80/jmap -d '...'
 
 The public key can be referenced as `jwt.publickeypem.url` of the `jmap.properties` configuration file.
+
+== Annotated specification
+
+The [annotated documentation](https://github.com/apache/james-project/tree/master/server/protocols/jmap-rfc-8621/doc/specs/spec)
+presents the limits of the JMAP RFC-8621 implementation part of the Apache James project. We furthermore implement
+[JSON Meta Application Protocol (JMAP) Subprotocol for WebSocket](https://tools.ietf.org/html/rfc8887).
+
+Some methods / types are not yet implemented, some implementations are naive, and the PUSH is not supported yet.
+
+Users are invited to read these limitations before using actively the JMAP RFC-8621 implementation, and should ensure their
+client applications only uses supported operations.
+
+Contributions enhancing support are furthermore welcomed.
+
+The list of tested JMAP clients are:
+
+ - [OpenPaaS](https://open-paas.org/) is actively using the draft version of the JMAP implementation. Migration to
+ RFC-8621 is planned.
+ - Experiments had been run on top of [LTT.RS](https://github.com/iNPUTmice/lttrs-android). Version in the Accept
+ headers needs to be explicitly set to `rfc-8621`. [Read more](https://github.com/linagora/james-project/pull/4089).

@@ -24,6 +24,7 @@ import static org.apache.james.util.ReactorUtils.context;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -118,8 +119,8 @@ public class SetFilterMethod implements Method {
 
         SetFilterRequest setFilterRequest = (SetFilterRequest) request;
 
-        return Flux.from(metricFactory.decorateSupplierWithTimerMetricLogP99(JMAP_PREFIX + METHOD_NAME.getName(),
-            () -> process(methodCallId, mailboxSession, setFilterRequest)
+        return Flux.from(metricFactory.decoratePublisherWithTimerMetric(JMAP_PREFIX + METHOD_NAME.getName(),
+            process(methodCallId, mailboxSession, setFilterRequest)
                 .subscriberContext(jmapAction("SET_FILTER"))
                 .subscriberContext(context("SET_FILTER", MDCBuilder.of("update", setFilterRequest.getSingleton())))));
     }
@@ -155,7 +156,7 @@ public class SetFilterMethod implements Method {
         ensureNoDuplicatedRules(rules);
         ensureNoMultipleMailboxesRules(rules);
 
-        return Mono.from(filteringManagement.defineRulesForUser(username, rules))
+        return Mono.from(filteringManagement.defineRulesForUser(username, rules, Optional.empty()))
             .thenReturn(JmapResponse.builder()
                 .methodCallId(methodCallId)
                 .responseName(RESPONSE_NAME)

@@ -32,11 +32,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.stream.Stream;
 
 import javax.mail.Flags;
 import javax.mail.Flags.Flag;
 
+import org.apache.james.events.Event;
+import org.apache.james.events.EventBus;
+import org.apache.james.events.EventListener;
+import org.apache.james.events.Registration;
 import org.apache.james.imap.api.process.ImapSession;
 import org.apache.james.imap.api.process.SelectedMailbox;
 import org.apache.james.mailbox.FlagsBuilder;
@@ -45,11 +48,13 @@ import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.NullableMessageSequenceNumber;
-import org.apache.james.mailbox.events.Event;
-import org.apache.james.mailbox.events.EventBus;
+import org.apache.james.mailbox.events.MailboxEvents.Added;
+import org.apache.james.mailbox.events.MailboxEvents.Expunged;
+import org.apache.james.mailbox.events.MailboxEvents.FlagsUpdated;
+import org.apache.james.mailbox.events.MailboxEvents.MailboxDeletion;
+import org.apache.james.mailbox.events.MailboxEvents.MailboxEvent;
+import org.apache.james.mailbox.events.MailboxEvents.MessageEvent;
 import org.apache.james.mailbox.events.MailboxIdRegistrationKey;
-import org.apache.james.mailbox.events.MailboxListener;
-import org.apache.james.mailbox.events.Registration;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
@@ -58,14 +63,16 @@ import org.apache.james.mailbox.model.UpdatedFlags;
 
 import com.github.steveash.guavate.Guavate;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
  * Default implementation of {@link SelectedMailbox}
  */
-public class SelectedMailboxImpl implements SelectedMailbox, MailboxListener {
+public class SelectedMailboxImpl implements SelectedMailbox, EventListener {
 
 
     private static final Void VOID = null;
@@ -151,9 +158,10 @@ public class SelectedMailboxImpl implements SelectedMailbox, MailboxListener {
         synchronized (applicableFlagsLock) {
             applicableFlags = applicableFlags.updateWithNewFlags(messageManager.getApplicableFlags(mailboxSession));
         }
-        try (Stream<MessageUid> stream = messageManager.search(SearchQuery.of(SearchQuery.all()), mailboxSession)) {
-            uidMsnConverter.addAll(stream.collect(Guavate.toImmutableList()));
-        }
+        ImmutableList<MessageUid> uids = Flux.from(messageManager.search(SearchQuery.of(SearchQuery.all()), mailboxSession))
+            .collect(Guavate.toImmutableList())
+            .block();
+        uidMsnConverter.addAll(uids);
     }
 
     @Override

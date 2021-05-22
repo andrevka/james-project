@@ -15,12 +15,12 @@
  * KIND, either express or implied.  See the License for the    *
  * specific language governing permissions and limitations      *
  * under the License.                                           *
- * ***************************************************************/
+ ****************************************************************/
 
 package org.apache.james.jmap.mail
 
 import org.apache.james.core.Domain
-import org.apache.james.jmap.model.UnsignedInt.UnsignedInt
+import org.apache.james.jmap.core.UnsignedInt.UnsignedInt
 import org.apache.james.mailbox.model.{QuotaRoot => ModelQuotaRoot}
 
 import scala.compat.java8.OptionConverters._

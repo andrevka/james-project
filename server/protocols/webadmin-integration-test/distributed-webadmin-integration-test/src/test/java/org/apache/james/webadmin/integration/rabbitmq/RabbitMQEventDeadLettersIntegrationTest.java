@@ -23,12 +23,12 @@ import static io.restassured.RestAssured.given;
 import static io.restassured.RestAssured.when;
 import static io.restassured.RestAssured.with;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Duration.ONE_HUNDRED_MILLISECONDS;
-import static org.awaitility.Duration.ONE_MINUTE;
+import static org.awaitility.Durations.ONE_MINUTE;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -46,15 +46,15 @@ import org.apache.james.JamesServerBuilder;
 import org.apache.james.JamesServerExtension;
 import org.apache.james.SearchConfiguration;
 import org.apache.james.backends.rabbitmq.DockerRabbitMQ;
-import org.apache.james.backends.rabbitmq.ReactorRabbitMQChannelPool;
 import org.apache.james.core.Username;
+import org.apache.james.events.Event;
+import org.apache.james.events.EventDispatcher.DispatchingFailureGroup;
+import org.apache.james.events.EventListener;
+import org.apache.james.events.Group;
+import org.apache.james.events.RetryBackoffConfiguration;
 import org.apache.james.junit.categories.BasicFeature;
+import org.apache.james.junit.categories.Unstable;
 import org.apache.james.mailbox.DefaultMailboxes;
-import org.apache.james.mailbox.events.Event;
-import org.apache.james.mailbox.events.EventDispatcher.DispatchingFailureGroup;
-import org.apache.james.mailbox.events.Group;
-import org.apache.james.mailbox.events.MailboxListener;
-import org.apache.james.mailbox.events.RetryBackoffConfiguration;
 import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.modules.AwsS3BlobStoreExtension;
@@ -69,7 +69,6 @@ import org.apache.james.webadmin.integration.WebadminIntegrationTestModule;
 import org.apache.james.webadmin.routes.EventDeadLettersRoutes;
 import org.apache.james.webadmin.routes.TasksRoutes;
 import org.awaitility.Awaitility;
-import org.awaitility.Duration;
 import org.awaitility.core.ConditionFactory;
 import org.eclipse.jetty.http.HttpStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,6 +87,7 @@ import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
 
 @Tag(BasicFeature.TAG)
+@Tag(Unstable.TAG)
 class RabbitMQEventDeadLettersIntegrationTest {
     public static class RetryEventsListenerGroup extends Group {
     }
@@ -95,7 +95,7 @@ class RabbitMQEventDeadLettersIntegrationTest {
     public static class RetryEventsListenerGroup2 extends Group {
     }
 
-    public static class RetryEventsListener implements MailboxListener.GroupMailboxListener {
+    public static class RetryEventsListener implements EventListener.GroupEventListener {
         static final Group GROUP = new RetryEventsListenerGroup();
 
         private final AtomicInteger totalCalls;
@@ -116,7 +116,7 @@ class RabbitMQEventDeadLettersIntegrationTest {
         }
 
         @Override
-        public void event(Event event) throws Exception {
+        public void event(Event event) {
             totalCalls.incrementAndGet();
             if (done(event)) {
                 callsByEventId.remove(event.getEventId());
@@ -162,7 +162,7 @@ class RabbitMQEventDeadLettersIntegrationTest {
         private RetryEventsListener2 retryEventsListener2;
 
         @Override
-        public void beforeEach(ExtensionContext extensionContext) throws Exception {
+        public void beforeEach(ExtensionContext extensionContext) {
             retryEventsListener = new RetryEventsListener();
             retryEventsListener2 = new RetryEventsListener2();
         }
@@ -170,7 +170,7 @@ class RabbitMQEventDeadLettersIntegrationTest {
         @Override
         public Module getModule() {
             return binder -> {
-                Multibinder<MailboxListener.GroupMailboxListener> setBinder = Multibinder.newSetBinder(binder, MailboxListener.GroupMailboxListener.class);
+                Multibinder<EventListener.GroupEventListener> setBinder = Multibinder.newSetBinder(binder, EventListener.GroupEventListener.class);
                 setBinder.addBinding().toInstance(retryEventsListener);
                 setBinder.addBinding().toInstance(retryEventsListener2);
             };
@@ -209,7 +209,8 @@ class RabbitMQEventDeadLettersIntegrationTest {
             .blobStore(BlobStoreConfiguration.builder()
                     .s3()
                     .disableCache()
-                    .deduplication())
+                    .deduplication()
+                    .noCryptoConfig())
             .searchConfiguration(SearchConfiguration.elasticSearch())
             .build())
         .extension(new DockerElasticSearchExtension())
@@ -222,14 +223,9 @@ class RabbitMQEventDeadLettersIntegrationTest {
             .overrideWith(binder -> binder.bind(RetryBackoffConfiguration.class)
                 .toInstance(RetryBackoffConfiguration.builder()
                     .maxRetries(MAX_RETRIES)
-                    .firstBackoff(java.time.Duration.ofMillis(10))
+                    .firstBackoff(java.time.Duration.ofMillis(5))
                     .jitterFactor(0.2)
-                    .build()))
-            .overrideWith(binder -> binder.bind(ReactorRabbitMQChannelPool.Configuration.class)
-                .toInstance(ReactorRabbitMQChannelPool.Configuration.builder()
-                    .retries(2)
-                    .minBorrowDelay(java.time.Duration.ofMillis(5))
-                    .maxChannel(3))))
+                    .build())))
         .build();
 
     private static final String DOMAIN = "domain.tld";
@@ -240,7 +236,7 @@ class RabbitMQEventDeadLettersIntegrationTest {
     private static final String DISPATCHING_FAILURE_GROUP_ID = DispatchingFailureGroup.INSTANCE.getClass().getName();
     private static final MailboxPath BOB_INBOX_PATH = MailboxPath.inbox(Username.of(BOB));
 
-    private Duration slowPacedPollInterval = ONE_HUNDRED_MILLISECONDS;
+    private Duration slowPacedPollInterval = Duration.ofMillis(100);
     private ConditionFactory calmlyAwait = Awaitility.with()
         .pollInterval(slowPacedPollInterval)
         .and()
@@ -291,7 +287,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES + 1);
         generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         when()
             .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID)
@@ -321,7 +320,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES + 1);
         generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         when()
             .get(EventDeadLettersRoutes.BASE_PATH + "/groups")
@@ -336,7 +338,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES + 1);
         MailboxId mailboxId = generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         String failedInsertionId = retrieveFirstFailedInsertionId();
 
@@ -358,7 +363,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         generateInitialEvent();
         generateSecondEvent();
 
-        waitForCalls(retryEventsListener, (MAX_RETRIES + 1) * 2);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(2)));
 
         when()
             .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID)
@@ -373,7 +381,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES + 1);
         generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         String failedInsertionId = retrieveFirstFailedInsertionId();
 
@@ -391,7 +402,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES + 1);
         generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         String failedInsertionId = retrieveFirstFailedInsertionId();
 
@@ -418,7 +432,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES + 1);
         generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         String failedInsertionId = retrieveFirstFailedInsertionId();
 
@@ -439,11 +456,14 @@ class RabbitMQEventDeadLettersIntegrationTest {
     }
 
     @Test
-    void failedEventShouldBeCorrectlyProcessedByListenerAfterSuccessfulRedelivery(RetryEventsListener retryEventsListener) throws InterruptedException {
+    void failedEventShouldBeCorrectlyProcessedByListenerAfterSuccessfulRedelivery(RetryEventsListener retryEventsListener) {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES + 1);
         generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         String failedInsertionId = retrieveFirstFailedInsertionId();
 
@@ -460,9 +480,6 @@ class RabbitMQEventDeadLettersIntegrationTest {
         awaitAtMostTenSeconds.until(() -> retryEventsListener.getSuccessfulEvents().size() == 1);
     }
 
-    private void waitForCalls(RetryEventsListener retryEventsListener, int count) {
-        calmlyAwait.atMost(ONE_MINUTE).until(() -> retryEventsListener.totalCalls.intValue() >= count);
-    }
 
     @Test
     void taskShouldBeCompletedAfterSuccessfulGroupRedelivery(RetryEventsListener retryEventsListener) {
@@ -470,7 +487,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         generateInitialEvent();
         generateSecondEvent();
 
-        waitForCalls(retryEventsListener, (MAX_RETRIES + 1) * 2);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(2)));
 
         String taskId = with()
             .queryParam("action", EVENTS_ACTION)
@@ -495,7 +515,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         generateInitialEvent();
         generateSecondEvent();
 
-        waitForCalls(retryEventsListener, (MAX_RETRIES + 1) * 2);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(2)));
 
         String taskId = with()
             .queryParam("action", EVENTS_ACTION)
@@ -521,7 +544,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         generateInitialEvent();
         generateSecondEvent();
 
-        waitForCalls(retryEventsListener, (MAX_RETRIES + 1) * 2);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(2)));
 
         String taskId = with()
             .queryParam("action", EVENTS_ACTION)
@@ -542,7 +568,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         generateInitialEvent();
         generateSecondEvent();
 
-        waitForCalls(retryEventsListener, (MAX_RETRIES + 1) * 2);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(2)));
 
         String taskId = with()
             .queryParam("action", EVENTS_ACTION)
@@ -566,7 +595,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         generateInitialEvent();
         generateSecondEvent();
 
-        waitForCalls(retryEventsListener, (MAX_RETRIES + 1) * 2);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(2)));
 
         String taskId = with()
             .queryParam("action", EVENTS_ACTION)
@@ -592,7 +624,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         generateInitialEvent();
         generateSecondEvent();
 
-        waitForCalls(retryEventsListener, (MAX_RETRIES + 1) * 2);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(2)));
 
         String taskId = with()
             .queryParam("action", EVENTS_ACTION)
@@ -613,7 +648,10 @@ class RabbitMQEventDeadLettersIntegrationTest {
         retryEventsListener.callsPerEventBeforeSuccess(MAX_RETRIES * 2 + 1);
         generateInitialEvent();
 
-        waitForCalls(retryEventsListener, MAX_RETRIES + 1);
+        calmlyAwait.atMost(ONE_MINUTE).untilAsserted(() -> with()
+            .get(EventDeadLettersRoutes.BASE_PATH + "/groups/" + GROUP_ID).prettyPeek()
+            .then()
+            .body(".", hasSize(1)));
 
         String failedInsertionId = retrieveFirstFailedInsertionId();
 

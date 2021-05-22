@@ -24,6 +24,7 @@ import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
 
 import org.apache.commons.configuration2.HierarchicalConfiguration;
@@ -42,6 +43,9 @@ import com.github.fge.lambdas.Throwing;
 import com.github.steveash.guavate.Guavate;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -52,7 +56,6 @@ import com.google.common.collect.Multimap;
  * class
  */
 public abstract class AbstractDomainList implements DomainList, Configurable {
-
     private static final Logger LOGGER = LoggerFactory.getLogger(AbstractDomainList.class);
 
     enum DomainType {
@@ -62,16 +65,12 @@ public abstract class AbstractDomainList implements DomainList, Configurable {
         DetectedIp
     }
 
-    public static final String CONFIGURE_AUTODETECT = "autodetect";
-    public static final String CONFIGURE_AUTODETECT_IP = "autodetectIP";
-    public static final String CONFIGURE_DEFAULT_DOMAIN = "defaultDomain";
-    public static final String CONFIGURE_DOMAIN_NAMES = "domainnames.domainname";
     public static final String ENV_DOMAIN = "DOMAIN";
 
     private final DNSService dns;
     private final EnvDetector envDetector;
-    private boolean autoDetect = true;
-    private boolean autoDetectIP = true;
+    private LoadingCache<Domain, Boolean> cache;
+    private DomainListConfiguration configuration;
     private Domain defaultDomain;
 
     public AbstractDomainList(DNSService dns, EnvDetector envDetector) {
@@ -91,8 +90,16 @@ public abstract class AbstractDomainList implements DomainList, Configurable {
     }
 
     public void configure(DomainListConfiguration domainListConfiguration) throws ConfigurationException {
-        setAutoDetect(domainListConfiguration.isAutoDetect());
-        setAutoDetectIP(domainListConfiguration.isAutoDetectIp());
+        this.configuration = domainListConfiguration;
+
+        this.cache = CacheBuilder.newBuilder()
+            .expireAfterWrite(configuration.getCacheExpiracy())
+            .build(new CacheLoader<>() {
+                @Override
+                public Boolean load(Domain key) throws DomainListException {
+                    return containsDomainInternal(key) || detectedDomainsContains(key);
+                }
+            });
 
         configureDefaultDomain(domainListConfiguration.getDefaultDomain());
 
@@ -139,7 +146,7 @@ public abstract class AbstractDomainList implements DomainList, Configurable {
     }
 
     private boolean mayChangeDefaultDomain() {
-        return autoDetect && Domain.LOCALHOST.equals(defaultDomain);
+        return configuration.isAutoDetect() && Domain.LOCALHOST.equals(defaultDomain);
     }
 
     private void setDefaultDomain(Domain defaultDomain) throws DomainListException {
@@ -160,15 +167,39 @@ public abstract class AbstractDomainList implements DomainList, Configurable {
 
     @Override
     public boolean containsDomain(Domain domain) throws DomainListException {
-        boolean internalAnswer = containsDomainInternal(domain);
-        return internalAnswer || getDomains().contains(domain);
+        if (configuration.isCacheEnabled()) {
+            try {
+                return cache.get(domain);
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof DomainListException) {
+                    throw (DomainListException) e.getCause();
+                }
+                throw new RuntimeException(e);
+            }
+        } else {
+            boolean internalAnswer = containsDomainInternal(domain);
+            return internalAnswer || detectedDomainsContains(domain);
+        }
+    }
+
+    private boolean detectedDomainsContains(Domain domain) throws DomainListException {
+        if (configuration.isAutoDetect() || configuration.isAutoDetectIp()) {
+            return getDomains().contains(domain);
+        }
+        return false;
     }
 
     @Override
     public ImmutableList<Domain> getDomains() throws DomainListException {
-        ImmutableSet<Domain> allDomains = getDomainsWithType().values()
+        Multimap<DomainType, Domain> domainsWithType = getDomainsWithType();
+        ImmutableSet<Domain> allDomains = domainsWithType.values()
             .stream()
             .collect(Guavate.toImmutableSet());
+
+        if (configuration.isCacheEnabled()) {
+            domainsWithType.get(DomainType.Internal)
+                .forEach(domain -> cache.put(domain, true));
+        }
 
         if (LOGGER.isDebugEnabled()) {
             for (Domain domain : allDomains) {
@@ -199,7 +230,7 @@ public abstract class AbstractDomainList implements DomainList, Configurable {
     }
 
     private ImmutableList<Domain> detectIps(Collection<Domain> domains) {
-        if (autoDetectIP) {
+        if (configuration.isAutoDetectIp()) {
             return getDomainsIpStream(domains, dns, LOGGER)
                 .collect(Guavate.toImmutableList());
         }
@@ -207,7 +238,7 @@ public abstract class AbstractDomainList implements DomainList, Configurable {
     }
 
     private ImmutableList<Domain> detectDomains() {
-        if (autoDetect) {
+        if (configuration.isAutoDetect()) {
             String hostName;
             try {
                 hostName = dns.getHostName(dns.getLocalHost());
@@ -246,30 +277,6 @@ public abstract class AbstractDomainList implements DomainList, Configurable {
             log.error("Cannot get IP address(es) for {}", domain);
             return Stream.of();
         }
-    }
-
-    /**
-     * Set to true to autodetect the hostname of the host on which james is
-     * running, and add this to the domain service Default is true
-     * 
-     * @param autoDetect
-     *            set to <code>false</code> for disable
-     */
-    public synchronized void setAutoDetect(boolean autoDetect) {
-        LOGGER.info("Set autodetect to: {}", autoDetect);
-        this.autoDetect = autoDetect;
-    }
-
-    /**
-     * Set to true to lookup the ipaddresses for each given domain and add these
-     * to the domain service Default is true
-     * 
-     * @param autoDetectIP
-     *            set to <code>false</code> for disable
-     */
-    public synchronized void setAutoDetectIP(boolean autoDetectIP) {
-        LOGGER.info("Set autodetectIP to: {}", autoDetectIP);
-        this.autoDetectIP = autoDetectIP;
     }
 
     @Override

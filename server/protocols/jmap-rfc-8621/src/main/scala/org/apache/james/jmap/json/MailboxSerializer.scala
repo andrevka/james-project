@@ -19,15 +19,14 @@
 
 package org.apache.james.jmap.json
 
+import eu.timepit.refined
 import eu.timepit.refined._
-import eu.timepit.refined.collection.NonEmpty
 import javax.inject.Inject
 import org.apache.james.core.{Domain, Username}
-import org.apache.james.jmap.mail.MailboxGet.{UnparsedMailboxId, UnparsedMailboxIdConstraint}
-import org.apache.james.jmap.mail.MailboxSetRequest.MailboxCreationId
-import org.apache.james.jmap.mail.{DelegatedNamespace, Ids, IsSubscribed, Mailbox, MailboxCreationRequest, MailboxCreationResponse, MailboxGetRequest, MailboxGetResponse, MailboxNamespace, MailboxPatchObject, MailboxRights, MailboxSetRequest, MailboxSetResponse, MailboxUpdateResponse, MayAddItems, MayCreateChild, MayDelete, MayReadItems, MayRemoveItems, MayRename, MaySetKeywords, MaySetSeen, MaySubmit, NotFound, PersonalNamespace, Quota, QuotaId, QuotaRoot, Quotas, RemoveEmailsOnDestroy, Rfc4314Rights, Right, Rights, SortOrder, TotalEmails, TotalThreads, UnreadEmails, UnreadThreads, Value}
-import org.apache.james.jmap.model.CapabilityIdentifier.CapabilityIdentifier
-import org.apache.james.jmap.model._
+import org.apache.james.jmap.core.CapabilityIdentifier.CapabilityIdentifier
+import org.apache.james.jmap.core.Id.IdConstraint
+import org.apache.james.jmap.core.{ClientId, Properties, SetError, UuidState}
+import org.apache.james.jmap.mail.{DelegatedNamespace, Ids, IsSubscribed, Mailbox, MailboxChangesRequest, MailboxChangesResponse, MailboxCreationId, MailboxCreationRequest, MailboxCreationResponse, MailboxGetRequest, MailboxGetResponse, MailboxNamespace, MailboxPatchObject, MailboxRights, MailboxSetRequest, MailboxSetResponse, MailboxUpdateResponse, MayAddItems, MayCreateChild, MayDelete, MayReadItems, MayRemoveItems, MayRename, MaySetKeywords, MaySetSeen, MaySubmit, NotFound, PersonalNamespace, Quota, QuotaId, QuotaRoot, Quotas, RemoveEmailsOnDestroy, Rfc4314Rights, Right, Rights, SortOrder, TotalEmails, TotalThreads, UnparsedMailboxId, UnreadEmails, UnreadThreads, Value}
 import org.apache.james.mailbox.Role
 import org.apache.james.mailbox.model.MailboxACL.{Right => JavaRight}
 import org.apache.james.mailbox.model.{MailboxACL, MailboxId}
@@ -41,6 +40,15 @@ class MailboxSerializer @Inject()(mailboxIdFactory: MailboxId.Factory) {
   private implicit val mailboxIdReads: Reads[MailboxId] = {
     case JsString(serializedMailboxId) => Try(JsSuccess(mailboxIdFactory.fromString(serializedMailboxId))).getOrElse(JsError())
     case _ => JsError()
+  }
+  private implicit val unparsedMailboxIdWrites: Writes[UnparsedMailboxId] = Json.valueWrites[UnparsedMailboxId]
+  private implicit val unparsedMailboxIdReads: Reads[UnparsedMailboxId] = {
+    case JsString(string) =>
+      refined.refineV[IdConstraint](string)
+        .fold(
+          e => JsError(s"mailboxId does not match Id constraints: $e"),
+          id => JsSuccess(UnparsedMailboxId(id)))
+    case _ => JsError("mailboxId needs to be represented by a JsString")
   }
 
   private implicit val roleWrites: Writes[Role] = Writes(role => JsString(role.serialize))
@@ -83,6 +91,9 @@ class MailboxSerializer @Inject()(mailboxIdFactory: MailboxId.Factory) {
   }
   private implicit val mailboxJavaRightReads: Reads[JavaRight] = value => rightRead.reads(value).map(right => right.toMailboxRight)
   private implicit val mailboxRfc4314RightsReads: Reads[Rfc4314Rights] = Json.valueReads[Rfc4314Rights]
+  private implicit val rightSeqWrites: Writes[Seq[Right]] = seq => JsArray(seq.map(rightWrites.writes))
+  private implicit val rightsMapWrites: Writes[Map[Username, Seq[Right]]] =
+    mapWrites[Username, Seq[Right]](_.asString(), rightSeqWrites)
   private implicit val rightsWrites: Writes[Rights] = Json.valueWrites[Rights]
 
   private implicit val mapRightsReads: Reads[Map[Username, Seq[Right]]] = _.validate[Map[String, Seq[Right]]]
@@ -90,91 +101,112 @@ class MailboxSerializer @Inject()(mailboxIdFactory: MailboxId.Factory) {
       rawMap.map(entry => (Username.of(entry._1), entry._2)))
   private implicit val rightsReads: Reads[Rights] = json => mapRightsReads.reads(json).map(rawMap => Rights(rawMap))
 
-  private implicit def rightsMapWrites(implicit rightWriter: Writes[Seq[Right]]): Writes[Map[Username, Seq[Right]]] =
-    mapWrites[Username, Seq[Right]](_.asString(), rightWriter)
-
   private implicit val domainWrites: Writes[Domain] = domain => JsString(domain.asString)
   private implicit val quotaRootWrites: Writes[QuotaRoot] = Json.writes[QuotaRoot]
   private implicit val quotaIdWrites: Writes[QuotaId] = Json.valueWrites[QuotaId]
 
   private implicit val quotaValueWrites: Writes[Value] = Json.writes[Value]
+  private implicit val quotaMapWrites: Writes[Map[Quotas.Type, Value]] =
+    mapWrites[Quotas.Type, Value](_.toString, quotaValueWrites)
   private implicit val quotaWrites: Writes[Quota] = Json.valueWrites[Quota]
-
-  private implicit def quotaMapWrites(implicit valueWriter: Writes[Value]): Writes[Map[Quotas.Type, Value]] =
-    mapWrites[Quotas.Type, Value](_.toString, valueWriter)
-
+  private implicit val quotasMapWrites: Writes[Map[QuotaId, Quota]] =
+    mapWrites[QuotaId, Quota](_.getName, quotaWrites)
   private implicit val quotasWrites: Writes[Quotas] = Json.valueWrites[Quotas]
 
-  private implicit def quotasMapWrites(implicit quotaWriter: Writes[Quota]): Writes[Map[QuotaId, Quota]] =
-    mapWrites[QuotaId, Quota](_.getName, quotaWriter)
+  implicit val mailboxWrites: Writes[Mailbox] = Json.writes[Mailbox]
 
-  implicit def mailboxWrites(properties: Properties): Writes[Mailbox] = Json.writes[Mailbox]
-    .transform(properties.filter(_))
-
-  implicit def mailboxCreationResponseWrites(properties: Properties): Writes[MailboxCreationResponse] =
-    Json.writes[MailboxCreationResponse]
-      .transform(properties.filter(_))
+  implicit val mailboxCreationResponseWrites: Writes[MailboxCreationResponse] = Json.writes[MailboxCreationResponse]
 
   private implicit val idsRead: Reads[Ids] = Json.valueReads[Ids]
 
   private implicit val mailboxGetRequest: Reads[MailboxGetRequest] = Json.reads[MailboxGetRequest]
+
+  private implicit val mailboxChangesRequest: Reads[MailboxChangesRequest] = Json.reads[MailboxChangesRequest]
 
   private implicit val mailboxRemoveEmailsOnDestroy: Reads[RemoveEmailsOnDestroy] = Json.valueFormat[RemoveEmailsOnDestroy]
   implicit val mailboxCreationRequest: Reads[MailboxCreationRequest] = Json.reads[MailboxCreationRequest]
   private implicit val mailboxPatchObject: Reads[MailboxPatchObject] = Json.valueReads[MailboxPatchObject]
 
   private implicit val mapPatchObjectByMailboxIdReads: Reads[Map[UnparsedMailboxId, MailboxPatchObject]] =
-    readMapEntry[UnparsedMailboxId, MailboxPatchObject](s => refineV[UnparsedMailboxIdConstraint](s),
-      o => MailboxPatchObject(o.value.toMap))
+    Reads.mapReads[UnparsedMailboxId, MailboxPatchObject] {string =>refineV[IdConstraint](string)
+      .fold(e => JsError(s"mailboxId needs to match id contraints: $e"),
+        id => JsSuccess(UnparsedMailboxId(id))) }
 
   private implicit val mapCreationRequestByMailBoxCreationId: Reads[Map[MailboxCreationId, JsObject]] =
-    readMapEntry[MailboxCreationId, JsObject](s => refineV[NonEmpty](s), o => o)
+    Reads.mapReads[MailboxCreationId, JsObject] {string => refineV[IdConstraint](string)
+      .fold(e => JsError(s"mailbox creationId needs to match id contraints: $e"),
+        id => JsSuccess(MailboxCreationId(id))) }
 
   private implicit val mailboxSetRequestReads: Reads[MailboxSetRequest] = Json.reads[MailboxSetRequest]
 
-  private implicit def notFoundWrites(implicit mailboxIdWrites: Writes[UnparsedMailboxId]): Writes[NotFound] =
-    notFound => JsArray(notFound.value.toList.map(mailboxIdWrites.writes))
+  private implicit val notFoundWrites: Writes[NotFound] = Json.valueWrites[NotFound]
 
-  private implicit def mailboxGetResponseWrites(implicit mailboxWrites: Writes[Mailbox]): Writes[MailboxGetResponse] = Json.writes[MailboxGetResponse]
+  private implicit val stateWrites: Writes[UuidState] = Json.valueWrites[UuidState]
+  private implicit val mailboxGetResponseWrites: Writes[MailboxGetResponse] = Json.writes[MailboxGetResponse]
 
-  private implicit def mailboxSetResponseWrites(implicit mailboxCreationResponseWrites: Writes[MailboxCreationResponse]): Writes[MailboxSetResponse] = Json.writes[MailboxSetResponse]
 
   private implicit val mailboxSetUpdateResponseWrites: Writes[MailboxUpdateResponse] = Json.valueWrites[MailboxUpdateResponse]
 
-  private implicit def mailboxMapSetErrorForCreationWrites: Writes[Map[MailboxCreationId, SetError]] =
-    mapWrites[MailboxCreationId, SetError](_.value, setErrorWrites)
-  private implicit def mailboxMapSetErrorWrites: Writes[Map[MailboxId, SetError]] =
+  private implicit val mailboxMapSetErrorForCreationWrites: Writes[Map[MailboxCreationId, SetError]] =
+    mapWrites[MailboxCreationId, SetError](_.id.value, setErrorWrites)
+  private implicit val mailboxMapSetErrorWrites: Writes[Map[MailboxId, SetError]] =
     mapWrites[MailboxId, SetError](_.serialize(), setErrorWrites)
-  private implicit def mailboxMapSetErrorWritesByClientId: Writes[Map[ClientId, SetError]] =
+  private implicit val mailboxMapSetErrorWritesByClientId: Writes[Map[ClientId, SetError]] =
     mapWrites[ClientId, SetError](_.value.value, setErrorWrites)
-  private implicit def mailboxMapCreationResponseWrites(implicit mailboxSetCreationResponseWrites: Writes[MailboxCreationResponse]): Writes[Map[MailboxCreationId, MailboxCreationResponse]] =
-    mapWrites[MailboxCreationId, MailboxCreationResponse](_.value, mailboxSetCreationResponseWrites)
-  private implicit def mailboxMapUpdateResponseWrites: Writes[Map[MailboxId, MailboxUpdateResponse]] =
+  private implicit val mailboxMapCreationResponseWrites: Writes[Map[MailboxCreationId, MailboxCreationResponse]] =
+    mapWrites[MailboxCreationId, MailboxCreationResponse](_.id.value, mailboxCreationResponseWrites)
+  private implicit val mailboxMapUpdateResponseWrites: Writes[Map[MailboxId, MailboxUpdateResponse]] =
     mapWrites[MailboxId, MailboxUpdateResponse](_.serialize(), mailboxSetUpdateResponseWrites)
+  private implicit val mailboxMapUpdateErrorWrites: Writes[Map[UnparsedMailboxId, SetError]] =
+    mapWrites[UnparsedMailboxId, SetError](_.id.value, setErrorWrites)
 
-  private def mailboxWritesWithFilteredProperties(properties: Properties, capabilities: Set[CapabilityIdentifier]): Writes[Mailbox] = {
-    mailboxWrites(Mailbox.propertiesFiltered(properties, capabilities))
-  }
+  private implicit val mailboxSetResponseWrites: Writes[MailboxSetResponse] = Json.writes[MailboxSetResponse]
+  private implicit val changesResponseWrites: Writes[MailboxChangesResponse] = response =>
+    Json.obj(
+      "accountId" -> response.accountId,
+      "oldState" -> response.oldState,
+      "newState" -> response.newState,
+      "hasMoreChanges" -> response.hasMoreChanges,
+      "updatedProperties" -> response.updatedProperties,
+      "created" -> response.created,
+      "updated" -> response.updated,
+      "destroyed" -> response.destroyed)
 
-  private def mailboxCreationResponseWritesWithFilteredProperties(capabilities: Set[CapabilityIdentifier]): Writes[MailboxCreationResponse] = {
-    mailboxCreationResponseWrites(MailboxCreationResponse.propertiesFiltered(capabilities))
-  }
+  def serializeChanges(changesResponse: MailboxChangesResponse): JsObject = Json.toJson(changesResponse).as[JsObject]
 
-  def serialize(mailbox: Mailbox)(implicit mailboxWrites: Writes[Mailbox]): JsValue = Json.toJson(mailbox)
-
-  def serialize(mailboxGetResponse: MailboxGetResponse)(implicit mailboxWrites: Writes[Mailbox]): JsValue = Json.toJson(mailboxGetResponse)
+  def serialize(mailbox: Mailbox): JsValue = Json.toJson(mailbox)
 
   def serialize(mailboxGetResponse: MailboxGetResponse, properties: Properties, capabilities: Set[CapabilityIdentifier]): JsValue =
-    serialize(mailboxGetResponse)(mailboxWritesWithFilteredProperties(properties, capabilities))
-
-  def serialize(mailboxSetResponse: MailboxSetResponse)
-               (implicit mailboxCreationResponseWrites: Writes[MailboxCreationResponse]): JsValue =
-    Json.toJson(mailboxSetResponse)(mailboxSetResponseWrites(mailboxCreationResponseWrites))
+    Json.toJson(mailboxGetResponse)
+      .transform((__ \ "list").json.update {
+        case JsArray(underlying) => JsSuccess(JsArray(underlying.map {
+          case jsonObject: JsObject =>
+            Mailbox.propertiesFiltered(properties, capabilities)
+              .filter(jsonObject)
+          case jsValue => jsValue
+        }))
+      }).get
 
   def serialize(mailboxSetResponse: MailboxSetResponse, capabilities: Set[CapabilityIdentifier]): JsValue =
-    serialize(mailboxSetResponse)(mailboxCreationResponseWritesWithFilteredProperties(capabilities))
+    Json.toJson(mailboxSetResponse)
+      .transform[JsValue] {
+        case JsObject(underlying) => JsSuccess[JsValue](JsObject(underlying.map {
+          case ("created", createdEntry: JsObject) =>
+            ("created", createdEntry match {
+              case JsObject(createdEntries) => JsObject(createdEntries.map {
+                case (key, serializedMailbox: JsObject) => (key, MailboxCreationResponse.propertiesFiltered(capabilities).filter(serializedMailbox))
+                case (key, value) => (key, value)
+              })
+              case jsValue: JsValue => jsValue
+            })
+          case (key, value) => (key, value)
+        }))
+        case jsValue => JsSuccess[JsValue](jsValue)
+      }.get
 
   def deserializeMailboxGetRequest(input: String): JsResult[MailboxGetRequest] = Json.parse(input).validate[MailboxGetRequest]
+
+  def deserializeMailboxChangesRequest(input: JsValue): JsResult[MailboxChangesRequest] = Json.fromJson[MailboxChangesRequest](input)
 
   def deserializeMailboxGetRequest(input: JsValue): JsResult[MailboxGetRequest] = Json.fromJson[MailboxGetRequest](input)
 

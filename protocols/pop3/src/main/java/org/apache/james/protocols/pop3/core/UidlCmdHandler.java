@@ -25,6 +25,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
+import javax.inject.Inject;
+
+import org.apache.james.metrics.api.MetricFactory;
 import org.apache.james.protocols.api.ProtocolSession.State;
 import org.apache.james.protocols.api.Request;
 import org.apache.james.protocols.api.Response;
@@ -32,6 +35,9 @@ import org.apache.james.protocols.api.handler.CommandHandler;
 import org.apache.james.protocols.pop3.POP3Response;
 import org.apache.james.protocols.pop3.POP3Session;
 import org.apache.james.protocols.pop3.mailbox.MessageMetaData;
+import org.apache.james.util.MDCBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -40,8 +46,16 @@ import com.google.common.collect.ImmutableSet;
  * Handles UIDL command
  */
 public class UidlCmdHandler implements CommandHandler<POP3Session>, CapaCapability {
+    private static final Logger LOGGER = LoggerFactory.getLogger(UidlCmdHandler.class);
     private static final Collection<String> COMMANDS = ImmutableSet.of("UIDL");
     private static final Set<String> CAPS = ImmutableSet.of("UIDL");
+
+    private final MetricFactory metricFactory;
+
+    @Inject
+    public UidlCmdHandler(MetricFactory metricFactory) {
+        this.metricFactory = metricFactory;
+    }
 
     /**
      * Handler method called upon receipt of a UIDL command. Returns a listing
@@ -49,6 +63,17 @@ public class UidlCmdHandler implements CommandHandler<POP3Session>, CapaCapabili
      */
     @Override
     public Response onCommand(POP3Session session, Request request) {
+        return metricFactory.decorateSupplierWithTimerMetric("pop3-uidl", () ->
+            MDCBuilder.withMdc(
+                MDCBuilder.create()
+                    .addContext(MDCBuilder.ACTION, "UIDL")
+                    .addContext(MDCConstants.withSession(session))
+                    .addContext(MDCConstants.forRequest(request)),
+                () -> uidl(session, request)));
+    }
+
+    private Response uidl(POP3Session session, Request request) {
+        LOGGER.trace("UIDL command received");
         POP3Response response = null;
         String parameters = request.getArgument();
         if (session.getHandlerState() == POP3Session.TRANSACTION) {
@@ -72,7 +97,7 @@ public class UidlCmdHandler implements CommandHandler<POP3Session>, CapaCapabili
                     int num = 0;
                     try {
                         num = Integer.parseInt(parameters);
-                        
+
                         MessageMetaData metadata = MessageMetaDataUtils.getMetaData(session, num);
 
                         if (metadata == null) {
@@ -98,7 +123,7 @@ public class UidlCmdHandler implements CommandHandler<POP3Session>, CapaCapabili
             } catch (IOException e) {
                 return POP3Response.ERR;
             }
-            
+
         } else {
             return POP3Response.ERR;
         }

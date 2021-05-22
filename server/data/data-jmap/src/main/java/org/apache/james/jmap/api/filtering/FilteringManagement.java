@@ -21,6 +21,7 @@ package org.apache.james.jmap.api.filtering;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.james.core.Username;
 import org.reactivestreams.Publisher;
@@ -29,16 +30,17 @@ import com.google.common.collect.ImmutableList;
 
 public interface FilteringManagement {
 
-    Publisher<Void> defineRulesForUser(Username username, List<Rule> rules);
+    Publisher<Version> defineRulesForUser(Username username, List<Rule> rules, Optional<Version> ifInState);
 
-    default Publisher<Void> defineRulesForUser(Username username, Rule... rules) {
-        return defineRulesForUser(username, Arrays.asList(rules));
+    default Publisher<Version> defineRulesForUser(Username username, Optional<Version> ifInState, Rule... rules) {
+        return defineRulesForUser(username, Arrays.asList(rules), ifInState);
     }
 
-    default Publisher<Void> clearRulesForUser(Username username) {
-        return defineRulesForUser(username, ImmutableList.of());
+    default Publisher<Version> clearRulesForUser(Username username) {
+        return defineRulesForUser(username, ImmutableList.of(), Optional.empty());
     }
 
-    Publisher<Rule> listRulesForUser(Username username);
+    Publisher<Rules> listRulesForUser(Username username);
 
+    Publisher<Version> getLatestVersion(Username username);
 }

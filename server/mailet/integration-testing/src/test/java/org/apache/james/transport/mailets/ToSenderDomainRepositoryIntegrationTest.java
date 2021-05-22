@@ -25,6 +25,8 @@ import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
+
 import org.apache.james.mailets.TemporaryJamesServer;
 import org.apache.james.mailets.configuration.MailetConfiguration;
 import org.apache.james.mailets.configuration.MailetContainer;
@@ -36,37 +38,34 @@ import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.MailRepositoryProbeImpl;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
-import org.junit.After;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
-public class ToSenderDomainRepositoryIntegrationTest {
-
+class ToSenderDomainRepositoryIntegrationTest {
     private static final String RECIPIENT = "touser@" + DEFAULT_DOMAIN;
     private static final String CUSTOM_REPOSITORY_PREFIX = "memory://var/mail/custom/";
     public static final MailRepositoryUrl DOMAIN_URL = MailRepositoryUrl.from(CUSTOM_REPOSITORY_PREFIX + DEFAULT_DOMAIN);
     public static final MailRepositoryUrl AWAIT_REPOSITORY_PATH = MailRepositoryUrl.from("memory://var/mail/await/");
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         if (jamesServer != null) {
             jamesServer.shutdown();
         }
     }
 
     @Test
-    public void incomingMailShouldBeStoredInCorrespondingMailRepository() throws Exception {
-        startJamesServerWithMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
+    void incomingMailShouldBeStoredInCorrespondingMailRepository(@TempDir File temporaryFolder) throws Exception {
+        startJamesServerWithMailetContainer(temporaryFolder, TemporaryJamesServer.simpleMailetContainerConfiguration()
             .putProcessor(ProcessorConfiguration.root()
                 .addMailet(MailetConfiguration.builder()
                     .matcher(All.class)
@@ -75,6 +74,7 @@ public class ToSenderDomainRepositoryIntegrationTest {
         MailRepositoryProbeImpl probe = jamesServer.getProbe(MailRepositoryProbeImpl.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(RECIPIENT, RECIPIENT);
 
         awaitAtMostOneMinute.until(
@@ -85,8 +85,8 @@ public class ToSenderDomainRepositoryIntegrationTest {
     }
 
     @Test
-    public void incomingMailShouldBeStoredWhenRepositoryDoesNotExistAndAllowedToCreateRepository() throws Exception {
-        startJamesServerWithMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
+    void incomingMailShouldBeStoredWhenRepositoryDoesNotExistAndAllowedToCreateRepository(@TempDir File temporaryFolder) throws Exception {
+        startJamesServerWithMailetContainer(temporaryFolder, TemporaryJamesServer.simpleMailetContainerConfiguration()
             .putProcessor(ProcessorConfiguration.root()
                 .addMailet(MailetConfiguration.builder()
                     .matcher(All.class)
@@ -96,6 +96,7 @@ public class ToSenderDomainRepositoryIntegrationTest {
         MailRepositoryProbeImpl probe = jamesServer.getProbe(MailRepositoryProbeImpl.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(RECIPIENT, RECIPIENT);
 
         awaitAtMostOneMinute.until(
@@ -106,8 +107,8 @@ public class ToSenderDomainRepositoryIntegrationTest {
     }
 
     @Test
-    public void incomingMailShouldBeStoredWhenRepositoryExistsAndAllowedToCreateRepository() throws Exception {
-        startJamesServerWithMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
+    void incomingMailShouldBeStoredWhenRepositoryExistsAndAllowedToCreateRepository(@TempDir File temporaryFolder) throws Exception {
+        startJamesServerWithMailetContainer(temporaryFolder, TemporaryJamesServer.simpleMailetContainerConfiguration()
             .putProcessor(ProcessorConfiguration.root()
                 .addMailet(MailetConfiguration.builder()
                     .matcher(All.class)
@@ -119,6 +120,7 @@ public class ToSenderDomainRepositoryIntegrationTest {
         probe.createRepository(DOMAIN_URL);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(RECIPIENT, RECIPIENT);
 
         awaitAtMostOneMinute.until(
@@ -129,8 +131,8 @@ public class ToSenderDomainRepositoryIntegrationTest {
     }
 
     @Test
-    public void incomingMailShouldBeIgnoredWhenRepositoryDoesNotExistAndNotAllowedToCreateRepository() throws Exception {
-        startJamesServerWithMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
+    void incomingMailShouldBeIgnoredWhenRepositoryDoesNotExistAndNotAllowedToCreateRepository(@TempDir File temporaryFolder) throws Exception {
+        startJamesServerWithMailetContainer(temporaryFolder, TemporaryJamesServer.simpleMailetContainerConfiguration()
             .putProcessor(ProcessorConfiguration.root()
                 .addMailet(MailetConfiguration.builder()
                     .matcher(All.class)
@@ -145,6 +147,7 @@ public class ToSenderDomainRepositoryIntegrationTest {
         MailRepositoryProbeImpl mailRepositoryProbe = jamesServer.getProbe(MailRepositoryProbeImpl.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(RECIPIENT, RECIPIENT);
 
         awaitAtMostOneMinute.until(
@@ -155,8 +158,8 @@ public class ToSenderDomainRepositoryIntegrationTest {
     }
 
     @Test
-    public void incomingMailShouldBeStoredWhenRepositoryExistsAndNotAllowedToCreateRepository() throws Exception {
-        startJamesServerWithMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
+    void incomingMailShouldBeStoredWhenRepositoryExistsAndNotAllowedToCreateRepository(@TempDir File temporaryFolder) throws Exception {
+        startJamesServerWithMailetContainer(temporaryFolder, TemporaryJamesServer.simpleMailetContainerConfiguration()
             .putProcessor(ProcessorConfiguration.root()
                 .addMailet(MailetConfiguration.builder()
                     .matcher(All.class)
@@ -168,6 +171,7 @@ public class ToSenderDomainRepositoryIntegrationTest {
         probe.createRepository(DOMAIN_URL);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(RECIPIENT, RECIPIENT);
 
         awaitAtMostOneMinute.until(
@@ -178,8 +182,8 @@ public class ToSenderDomainRepositoryIntegrationTest {
     }
 
     @Test
-    public void incomingMailsShouldBeStoredInCorrespondingMailRepository() throws Exception {
-        startJamesServerWithMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
+    void incomingMailsShouldBeStoredInCorrespondingMailRepository(@TempDir File temporaryFolder) throws Exception {
+        startJamesServerWithMailetContainer(temporaryFolder, TemporaryJamesServer.simpleMailetContainerConfiguration()
             .putProcessor(ProcessorConfiguration.root()
                 .addMailet(MailetConfiguration.builder()
                     .matcher(All.class)
@@ -188,6 +192,7 @@ public class ToSenderDomainRepositoryIntegrationTest {
         MailRepositoryProbeImpl probe = jamesServer.getProbe(MailRepositoryProbeImpl.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(RECIPIENT, RECIPIENT)
             .sendMessage(RECIPIENT, RECIPIENT);
 
@@ -198,10 +203,10 @@ public class ToSenderDomainRepositoryIntegrationTest {
             .isEqualTo(2);
     }
 
-    private void startJamesServerWithMailetContainer(MailetContainer.Builder mailetContainer) throws Exception {
+    private void startJamesServerWithMailetContainer(File temporaryFolder, MailetContainer.Builder mailetContainer) throws Exception {
         jamesServer = TemporaryJamesServer.builder()
             .withMailetContainer(mailetContainer)
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         jamesServer.getProbe(DataProbeImpl.class)

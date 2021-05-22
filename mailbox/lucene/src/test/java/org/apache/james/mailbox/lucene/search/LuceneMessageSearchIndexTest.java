@@ -19,19 +19,24 @@
 
 package org.apache.james.mailbox.lucene.search;
 
+import java.util.List;
+
 import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMessageId;
 import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.SearchQuery;
 import org.apache.james.mailbox.store.search.AbstractMessageSearchIndexTest;
 import org.apache.lucene.store.RAMDirectory;
 import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 import com.github.fge.lambdas.Throwing;
 
 class LuceneMessageSearchIndexTest extends AbstractMessageSearchIndexTest {
 
     @Override
-    protected void await() {
+    protected void awaitMessageCount(List<MailboxId> mailboxIds, SearchQuery query, long messageCount) {
     }
 
     @Override
@@ -112,12 +117,13 @@ class LuceneMessageSearchIndexTest extends AbstractMessageSearchIndexTest {
 
     @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")
     @Override
-    public void sortOnDisplayFromShouldWork() {
+    public void mailsContainsShouldIncludeMailHavingAttachmentsMatchingTheRequest() {
     }
 
-    @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")
+    @Disabled("Domain part search is not supported by Lucene")
+    @Test
     @Override
-    public void mailsContainsShouldIncludeMailHavingAttachmentsMatchingTheRequest() {
+    public void textShouldMatchEmailAddressDomainPart() throws Exception {
     }
 
     @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")

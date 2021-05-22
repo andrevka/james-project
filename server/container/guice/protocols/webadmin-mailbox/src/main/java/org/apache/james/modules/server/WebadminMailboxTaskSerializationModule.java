@@ -18,6 +18,8 @@
  ****************************************************************/
 package org.apache.james.modules.server;
 
+import org.apache.james.mailbox.MailboxManager;
+import org.apache.james.mailbox.SubscriptionManager;
 import org.apache.james.mailbox.quota.task.RecomputeCurrentQuotasService;
 import org.apache.james.mailbox.quota.task.RecomputeCurrentQuotasTaskAdditionalInformationDTO;
 import org.apache.james.mailbox.quota.task.RecomputeCurrentQuotasTaskDTO;
@@ -28,11 +30,15 @@ import org.apache.james.server.task.json.dto.TaskDTOModule;
 import org.apache.james.task.Task;
 import org.apache.james.task.TaskExecutionDetails;
 import org.apache.james.webadmin.dto.DTOModuleInjections;
+import org.apache.james.webadmin.service.CreateMissingParentsTask;
+import org.apache.james.webadmin.service.CreateMissingParentsTaskAdditionalInformationDTO;
 import org.apache.james.webadmin.service.EventDeadLettersRedeliverAllTaskDTO;
 import org.apache.james.webadmin.service.EventDeadLettersRedeliverGroupTaskDTO;
 import org.apache.james.webadmin.service.EventDeadLettersRedeliverOneTaskDTO;
 import org.apache.james.webadmin.service.EventDeadLettersRedeliverService;
 import org.apache.james.webadmin.service.EventDeadLettersRedeliveryTaskAdditionalInformationDTO;
+import org.apache.james.webadmin.service.SubscribeAllTaskAdditionalInformationDTO;
+import org.apache.james.webadmin.service.SubscribeAllTaskDTO;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.multibindings.ProvidesIntoSet;
@@ -55,13 +61,28 @@ public class WebadminMailboxTaskSerializationModule extends AbstractModule {
     }
 
     @ProvidesIntoSet
+    public TaskDTOModule<? extends Task, ? extends TaskDTO> subscribeAllTask(MailboxManager mailboxManager, SubscriptionManager subscriptionManager) {
+        return SubscribeAllTaskDTO.module(mailboxManager, subscriptionManager);
+    }
+
+    @ProvidesIntoSet
     public TaskDTOModule<? extends Task, ? extends TaskDTO> recomputeCurrentQuotasTask(RecomputeCurrentQuotasService service) {
         return RecomputeCurrentQuotasTaskDTO.module(service);
     }
 
     @ProvidesIntoSet
+    public TaskDTOModule<? extends Task, ? extends TaskDTO> createMissingParentsTask(MailboxManager mailboxManager) {
+        return CreateMissingParentsTask.module(mailboxManager);
+    }
+
+    @ProvidesIntoSet
     public AdditionalInformationDTOModule<? extends TaskExecutionDetails.AdditionalInformation, ? extends  AdditionalInformationDTO> eventDeadLettersRedeliveryAdditionalInformationForAll() {
         return EventDeadLettersRedeliveryTaskAdditionalInformationDTO.EventDeadLettersRedeliveryTaskAdditionalInformationForAll.module();
+    }
+
+    @ProvidesIntoSet
+    public AdditionalInformationDTOModule<? extends TaskExecutionDetails.AdditionalInformation, ? extends  AdditionalInformationDTO> subscribeAllTaskDTO() {
+        return SubscribeAllTaskAdditionalInformationDTO.SERIALIZATION_MODULE;
     }
 
     @Named(DTOModuleInjections.WEBADMIN_DTO)
@@ -101,5 +122,22 @@ public class WebadminMailboxTaskSerializationModule extends AbstractModule {
     @ProvidesIntoSet
     public AdditionalInformationDTOModule<? extends TaskExecutionDetails.AdditionalInformation, ? extends  AdditionalInformationDTO> webAdminRecomputeCurrentQuotasAdditionalInformation() {
         return RecomputeCurrentQuotasTaskAdditionalInformationDTO.module();
+    }
+
+    @Named(DTOModuleInjections.WEBADMIN_DTO)
+    @ProvidesIntoSet
+    public AdditionalInformationDTOModule<? extends TaskExecutionDetails.AdditionalInformation, ? extends  AdditionalInformationDTO> subscribeAllTaskWebAdminDTO() {
+        return SubscribeAllTaskAdditionalInformationDTO.SERIALIZATION_MODULE;
+    }
+
+    @ProvidesIntoSet
+    public AdditionalInformationDTOModule<? extends TaskExecutionDetails.AdditionalInformation, ? extends  AdditionalInformationDTO> createMissingParentsAdditionalInformation() {
+        return CreateMissingParentsTaskAdditionalInformationDTO.SERIALIZATION_MODULE;
+    }
+
+    @Named(DTOModuleInjections.WEBADMIN_DTO)
+    @ProvidesIntoSet
+    public AdditionalInformationDTOModule<? extends TaskExecutionDetails.AdditionalInformation, ? extends  AdditionalInformationDTO> webAdminCreateMissingParentsAdditionalInformation() {
+        return CreateMissingParentsTaskAdditionalInformationDTO.SERIALIZATION_MODULE;
     }
 }

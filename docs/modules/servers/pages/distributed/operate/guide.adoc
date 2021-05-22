@@ -137,7 +137,7 @@ Currently, an administrator can monitor indexation failures through
 `ERROR` log review. You can as well
 xref:distributed/operate/webadmin.adoc#_listing_failed_events[list failed events] by
 looking with the group called
-`org.apache.james.mailbox.elasticsearch.events.ElasticSearchListeningMessageSearchIndex$ElasticSearchListeningMessageSearchIndexGroup`.
+`org.apache.james.mailbox.elasticsearch.v7.events.ElasticSearchListeningMessageSearchIndex$ElasticSearchListeningMessageSearchIndexGroup`.
 A first on-the-fly solution could be to just
 link:#_mailbox_event_bus[redeliver those group events with event dead letter].
 
@@ -165,21 +165,21 @@ administrator might want to update index settings include:
 
 In order to achieve such a procedure, you need to:
 
-* https://www.elastic.co/guide/en/elasticsearch/reference/6.3/indices-create-index.html[Create
+* https://www.elastic.co/guide/en/elasticsearch/reference/7.10/indices-create-index.html[Create
 the new index] with the right settings and mapping
 * James uses two aliases on the mailbox index: one for reading
 (`mailboxReadAlias`) and one for writing (`mailboxWriteAlias`). First
-https://www.elastic.co/guide/en/elasticsearch/reference/6.3/indices-aliases.html[add
+https://www.elastic.co/guide/en/elasticsearch/reference/7.10/indices-aliases.html[add
 an alias] `mailboxWriteAlias` to that new index, so that now James
 writes on the old and new indexes, while only keeping reading on the
 first one
 * Now trigger a
-https://www.elastic.co/guide/en/elasticsearch/reference/6.3/docs-reindex.html[reindex]
+https://www.elastic.co/guide/en/elasticsearch/reference/7.10/docs-reindex.html[reindex]
 from the old index to the new one (this actively relies on `_source`
 field being present)
 * When this is done, add the `mailboxReadAlias` alias to the new index
 * Now that the migration to the new index is done, you can
-https://www.elastic.co/guide/en/elasticsearch/reference/6.3/indices-delete-index.html[drop
+https://www.elastic.co/guide/en/elasticsearch/reference/7.10/indices-delete-index.html[drop
 the old index]
 * You might want as well modify the James configuration file
 https://github.com/apache/james-project/blob/master/dockerfiles/run/guice/cassandra-rabbitmq/destination/conf/elasticsearch.properties[elasticsearch.properties]
@@ -357,7 +357,7 @@ echo -e "\nauthorizer: org.apache.cassandra.auth.CassandraAuthorizer" >> /etc/ca
 ==== Create a role
 
 Have a look at
-http://cassandra.apache.org/doc/3.11.3/cql/security.html[cassandra documentation] section `CREATE ROLE` for more information
+http://cassandra.apache.org/doc/3.11.11/cql/security.html[cassandra documentation] section `CREATE ROLE` for more information
 
 E.g.
 
@@ -368,7 +368,7 @@ CREATE ROLE james_one WITH PASSWORD = 'james_one' AND LOGIN = true;
 ==== Create a keyspace
 
 Have a look at
-http://cassandra.apache.org/doc/3.11.3/cql/ddl.html[cassandra documentation] section `CREATE KEYSPACE` for more information
+http://cassandra.apache.org/doc/3.11.11/cql/ddl.html[cassandra documentation] section `CREATE KEYSPACE` for more information
 
 ==== Grant permissions on created keyspace to the role
 
@@ -416,7 +416,7 @@ that topic. Consequently, you have to accept that your data models are
 still being exposed to anyone having credentials to Cassandra.
 
 For more information, have a look at
-http://cassandra.apache.org/doc/3.11.3/cql/security.html[cassandra documentation] section `REVOKE PERMISSION`.
+http://cassandra.apache.org/doc/3.11.11/cql/security.html[cassandra documentation] section `REVOKE PERMISSION`.
 
 Except for the case above, the permissions are not auto available for a
 specific role unless they are granted by `GRANT` command. Therefore, if

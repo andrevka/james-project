@@ -22,34 +22,33 @@ package org.apache.james.mailbox.cassandra.mail;
 import java.util.Date;
 import java.util.List;
 
-import javax.mail.util.SharedByteArrayInputStream;
-
 import org.apache.james.blob.api.BlobId;
 import org.apache.james.mailbox.model.ComposedMessageIdWithMetaData;
+import org.apache.james.mailbox.model.Content;
 import org.apache.james.mailbox.model.MessageAttachmentMetadata;
 import org.apache.james.mailbox.model.MessageId;
-import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
+import org.apache.james.mailbox.store.mail.model.impl.Properties;
 import org.apache.james.mailbox.store.mail.model.impl.SimpleMailboxMessage;
 
 public class MessageRepresentation {
     private final MessageId messageId;
     private final Date internalDate;
     private final Long size;
-    private final Integer bodySize;
-    private final SharedByteArrayInputStream content;
-    private final PropertyBuilder propertyBuilder;
+    private final Integer bodyStartOctet;
+    private final Content content;
+    private final Properties properties;
     private final List<MessageAttachmentRepresentation> attachments;
     private final BlobId headerId;
     private final BlobId bodyId;
 
-    public MessageRepresentation(MessageId messageId, Date internalDate, Long size, Integer bodySize, SharedByteArrayInputStream content,
-                                 PropertyBuilder propertyBuilder, List<MessageAttachmentRepresentation> attachments, BlobId headerId, BlobId bodyId) {
+    public MessageRepresentation(MessageId messageId, Date internalDate, Long size, Integer bodyStartOctet, Content content,
+                                 Properties properties, List<MessageAttachmentRepresentation> attachments, BlobId headerId, BlobId bodyId) {
         this.messageId = messageId;
         this.internalDate = internalDate;
         this.size = size;
-        this.bodySize = bodySize;
+        this.bodyStartOctet = bodyStartOctet;
         this.content = content;
-        this.propertyBuilder = propertyBuilder;
+        this.properties = properties;
         this.attachments = attachments;
         this.headerId = headerId;
         this.bodyId = bodyId;
@@ -62,25 +61,37 @@ public class MessageRepresentation {
             .uid(metadata.getComposedMessageId().getUid())
             .modseq(metadata.getModSeq())
             .internalDate(internalDate)
-            .bodyStartOctet(bodySize)
+            .bodyStartOctet(bodyStartOctet)
             .size(size)
             .content(content)
             .flags(metadata.getFlags())
-            .propertyBuilder(propertyBuilder)
+            .properties(properties)
             .addAttachments(attachments)
             .build();
+    }
+
+    public Date getInternalDate() {
+        return internalDate;
+    }
+
+    public Long getSize() {
+        return size;
+    }
+
+    public Integer getBodyStartOctet() {
+        return bodyStartOctet;
     }
 
     public MessageId getMessageId() {
         return messageId;
     }
 
-    public SharedByteArrayInputStream getContent() {
+    public Content getContent() {
         return content;
     }
 
-    public PropertyBuilder getPropertyBuilder() {
-        return propertyBuilder;
+    public Properties getProperties() {
+        return properties;
     }
 
     public List<MessageAttachmentRepresentation> getAttachments() {

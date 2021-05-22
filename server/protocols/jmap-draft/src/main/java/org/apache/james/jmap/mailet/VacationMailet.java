@@ -21,13 +21,15 @@ package org.apache.james.jmap.mailet;
 
 import java.time.ZonedDateTime;
 import java.util.Locale;
+import java.util.Optional;
 
 import javax.inject.Inject;
 import javax.mail.MessagingException;
+import javax.mail.internet.AddressException;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.core.MailAddress;
-import org.apache.james.jmap.api.vacation.AccountId;
+import org.apache.james.jmap.api.model.AccountId;
 import org.apache.james.jmap.api.vacation.NotificationRegistry;
 import org.apache.james.jmap.api.vacation.RecipientId;
 import org.apache.james.jmap.api.vacation.Vacation;
@@ -70,10 +72,17 @@ public class VacationMailet extends GenericMailet {
             if (!mail.hasSender()) {
                 return;
             }
-            if (! automaticallySentMailDetector.isAutomaticallySent(mail)) {
+            boolean hasReplyToHeaderField = Optional.ofNullable(mail.getMessage().getReplyTo())
+                .map(replyToFields -> replyToFields.length > 0)
+                .orElse(false);
+            if (!automaticallySentMailDetector.isAutomaticallySent(mail) && hasReplyToHeaderField) {
                 ZonedDateTime processingDate = zonedDateTimeProvider.get();
                 mail.getRecipients()
                     .forEach(mailAddress -> manageVacation(mailAddress, mail, processingDate));
+            }
+        } catch (AddressException e) {
+            if (!e.getMessage().equals("Empty address")) {
+                LOGGER.warn("Can not process vacation for one or more recipients in {}", mail.getRecipients(), e);
             }
         } catch (Throwable e) {
             LOGGER.warn("Can not process vacation for one or more recipients in {}", mail.getRecipients(), e);

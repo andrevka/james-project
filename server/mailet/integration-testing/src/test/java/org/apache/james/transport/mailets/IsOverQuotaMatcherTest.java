@@ -25,6 +25,8 @@ import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
+
 import org.apache.james.MemoryJamesServerMain;
 import org.apache.james.core.quota.QuotaCountLimit;
 import org.apache.james.core.quota.QuotaSizeLimit;
@@ -42,15 +44,15 @@ import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
 import org.apache.james.utils.WebAdminGuiceProbe;
 import org.apache.james.webadmin.WebAdminUtils;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 import io.restassured.specification.RequestSpecification;
 
-public class IsOverQuotaMatcherTest {
+class IsOverQuotaMatcherTest {
 
     private static final String OTHER_DOMAIN = "other.com";
     private static final String FROM = "fromuser@" + OTHER_DOMAIN;
@@ -63,18 +65,16 @@ public class IsOverQuotaMatcherTest {
     private static final QuotaCountLimit SMALL_COUNT = QuotaCountLimit.count(0);
     private static final QuotaCountLimit LARGE_COUNT = QuotaCountLimit.count(100);
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
     
     private TemporaryJamesServer jamesServer;
     private RequestSpecification webAdminApi;
 
-    @Before
-    public void setup() throws Exception {
+    @BeforeEach
+    void setup(@TempDir File temporaryFolder) throws Exception {
         MailetContainer.Builder mailetContainer = TemporaryJamesServer.defaultMailetContainerConfiguration()
                 .putProcessor(ProcessorConfiguration.transport()
                         .addMailet(MailetConfiguration.builder()
@@ -88,7 +88,7 @@ public class IsOverQuotaMatcherTest {
         jamesServer = TemporaryJamesServer.builder()
             .withBase(MemoryJamesServerMain.IN_MEMORY_SERVER_AGGREGATE_MODULE)
             .withMailetContainer(mailetContainer)
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         webAdminApi = WebAdminUtils.spec(jamesServer.getProbe(WebAdminGuiceProbe.class).getWebAdminPort());
@@ -101,18 +101,19 @@ public class IsOverQuotaMatcherTest {
         dataProbe.addUser(BOUNCE_SENDER, PASSWORD);
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
     }
 
     @Test
-    public void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisSizeQuota() throws Exception {
+    void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisSizeQuota() throws Exception {
         webAdminApi.given()
             .body(SMALL_SIZE.asLong())
             .put("/quota/users/" + RECIPIENT + "/size");
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         TestIMAPClient messageReader = testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -125,12 +126,13 @@ public class IsOverQuotaMatcherTest {
     }
 
     @Test
-    public void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisDomainSizeQuota() throws Exception {
+    void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisDomainSizeQuota() throws Exception {
         webAdminApi.given()
             .body(SMALL_SIZE.asLong())
             .put("/quota/domains/" + DEFAULT_DOMAIN + "/size");
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         TestIMAPClient messageReader = testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -143,12 +145,13 @@ public class IsOverQuotaMatcherTest {
     }
 
     @Test
-    public void aBounceMessageShouldBeSentToTheRecipientWhenRecipientSizeQuotaIsNotExceeded() throws Exception {
+    void aBounceMessageShouldBeSentToTheRecipientWhenRecipientSizeQuotaIsNotExceeded() throws Exception {
         webAdminApi.given()
             .body(LARGE_SIZE.asLong())
             .put("/quota/users/" + RECIPIENT + "/size");
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -158,12 +161,13 @@ public class IsOverQuotaMatcherTest {
     }
 
     @Test
-    public void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisCountQuota() throws Exception {
+    void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisCountQuota() throws Exception {
         webAdminApi.given()
             .body(SMALL_COUNT.asLong())
             .put("/quota/users/" + RECIPIENT + "/count");
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         TestIMAPClient messageReader = testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -176,12 +180,13 @@ public class IsOverQuotaMatcherTest {
     }
 
     @Test
-    public void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisDomainCountQuota() throws Exception {
+    void aBounceMessageShouldBeSentToTheSenderWhenRecipientAsReachedHisDomainCountQuota() throws Exception {
         webAdminApi.given()
             .body(SMALL_COUNT.asLong())
             .put("/quota/domains/" + DEFAULT_DOMAIN + "/count");
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         TestIMAPClient messageReader = testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -194,12 +199,13 @@ public class IsOverQuotaMatcherTest {
     }
 
     @Test
-    public void aBounceMessageShouldBeSentToTheRecipientWhenRecipientCountQuotaIsNotExceeded() throws Exception {
+    void aBounceMessageShouldBeSentToTheRecipientWhenRecipientCountQuotaIsNotExceeded() throws Exception {
         webAdminApi.given()
             .body(LARGE_COUNT.asLong())
             .put("/quota/users/" + RECIPIENT + "/count");
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())

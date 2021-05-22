@@ -21,10 +21,8 @@ package org.apache.james.mpt.smtp;
 import java.util.Locale;
 
 import org.apache.james.mpt.script.SimpleScriptedTestProtocol;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public abstract class SmtpAuthCommandTest {
 
@@ -33,15 +31,12 @@ public abstract class SmtpAuthCommandTest {
     public static final String USER_AT_DOMAIN = USER + "@" + DOMAIN;
     public static final String PASSWORD = "secret";
 
-    @Rule
-    public final TemporaryFolder folder = new TemporaryFolder();
-
     protected abstract SmtpHostSystem createSmtpHostSystem();
     
     private SmtpHostSystem hostSystem;
     private SimpleScriptedTestProtocol scriptedTest;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         hostSystem = createSmtpHostSystem();
         String scriptDir = "/org/apache/james/smtp/scripts/";

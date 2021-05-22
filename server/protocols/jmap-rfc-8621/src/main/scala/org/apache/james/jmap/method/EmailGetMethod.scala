@@ -1,4 +1,4 @@
-/** **************************************************************
+/****************************************************************
  * Licensed to the Apache Software Foundation (ASF) under one   *
  * or more contributor license agreements.  See the NOTICE file *
  * distributed with this work for additional information        *
@@ -6,16 +6,16 @@
  * to you under the Apache License, Version 2.0 (the            *
  * "License"); you may not use this file except in compliance   *
  * with the License.  You may obtain a copy of the License at   *
- * *
- * http://www.apache.org/licenses/LICENSE-2.0                 *
- * *
+ *                                                              *
+ * http://www.apache.org/licenses/LICENSE-2.0                   *
+ *                                                              *
  * Unless required by applicable law or agreed to in writing,   *
  * software distributed under the License is distributed on an  *
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY       *
  * KIND, either express or implied.  See the License for the    *
  * specific language governing permissions and limitations      *
  * under the License.                                           *
- * ***************************************************************/
+ ****************************************************************/
 package org.apache.james.jmap.method
 
 import java.time.ZoneId
@@ -23,16 +23,15 @@ import java.time.ZoneId
 import eu.timepit.refined.auto._
 import eu.timepit.refined.types.string.NonEmptyString
 import javax.inject.Inject
-import org.apache.james.jmap.api.model.Preview
-import org.apache.james.jmap.http.SessionSupplier
+import org.apache.james.jmap.api.change.{EmailChangeRepository, State => JavaState}
+import org.apache.james.jmap.api.model.{AccountId => JavaAccountId}
+import org.apache.james.jmap.core.CapabilityIdentifier.{CapabilityIdentifier, JAMES_SHARES, JMAP_CORE, JMAP_MAIL}
+import org.apache.james.jmap.core.Invocation.{Arguments, MethodName}
+import org.apache.james.jmap.core.UuidState.INSTANCE
+import org.apache.james.jmap.core.{AccountId, ErrorCode, Invocation, Properties, UuidState}
 import org.apache.james.jmap.json.{EmailGetSerializer, ResponseSerializer}
-import org.apache.james.jmap.mail.Email.UnparsedEmailId
-import org.apache.james.jmap.mail.{Email, EmailBodyPart, EmailGetRequest, EmailGetResponse, EmailIds, EmailNotFound, EmailView, EmailViewReaderFactory, SpecificHeaderRequest}
-import org.apache.james.jmap.model.CapabilityIdentifier.CapabilityIdentifier
-import org.apache.james.jmap.model.DefaultCapabilities.{CORE_CAPABILITY, MAIL_CAPABILITY}
-import org.apache.james.jmap.model.Invocation.{Arguments, MethodName}
-import org.apache.james.jmap.model.State.INSTANCE
-import org.apache.james.jmap.model.{AccountId, Capabilities, ErrorCode, Invocation, Properties}
+import org.apache.james.jmap.mail.{Email, EmailBodyPart, EmailGetRequest, EmailGetResponse, EmailIds, EmailNotFound, EmailView, EmailViewReaderFactory, SpecificHeaderRequest, UnparsedEmailId}
+import org.apache.james.jmap.routes.SessionSupplier
 import org.apache.james.mailbox.MailboxSession
 import org.apache.james.mailbox.model.MessageId
 import org.apache.james.metrics.api.MetricFactory
@@ -79,28 +78,31 @@ class SystemZoneIdProvider extends ZoneIdProvider {
 
 class EmailGetMethod @Inject() (readerFactory: EmailViewReaderFactory,
                                 messageIdFactory: MessageId.Factory,
-                                zoneIdProvider: ZoneIdProvider,
-                                previewFactory: Preview.Factory,
                                 val metricFactory: MetricFactory,
+                                val emailchangeRepository: EmailChangeRepository,
                                 val sessionSupplier: SessionSupplier) extends MethodRequiringAccountId[EmailGetRequest] {
-  override val methodName = MethodName("Email/get")
-  override val requiredCapabilities: Capabilities = Capabilities(CORE_CAPABILITY, MAIL_CAPABILITY)
+  override val methodName: MethodName = MethodName("Email/get")
+  override val requiredCapabilities: Set[CapabilityIdentifier] = Set(JMAP_CORE, JMAP_MAIL)
 
   override def doProcess(capabilities: Set[CapabilityIdentifier], invocation: InvocationWithContext, mailboxSession: MailboxSession, request: EmailGetRequest): SMono[InvocationWithContext] = {
-    computeResponseInvocation(request, invocation.invocation, mailboxSession).onErrorResume({
+    computeResponseInvocation(capabilities, request, invocation.invocation, mailboxSession).onErrorResume({
       case e: IllegalArgumentException => SMono.just(Invocation.error(ErrorCode.InvalidArguments, e.getMessage, invocation.invocation.methodCallId))
-      case e: Throwable => SMono.raiseError(e)
+      case e: Throwable => SMono.error(e)
     }).map(invocationResult => InvocationWithContext(invocationResult, invocation.processingContext))
   }
 
-  override def getRequest(mailboxSession: MailboxSession, invocation: Invocation): SMono[EmailGetRequest] = asEmailGetRequest(invocation.arguments)
+  override def getRequest(mailboxSession: MailboxSession, invocation: Invocation): Either[IllegalArgumentException, EmailGetRequest] =
+    EmailGetSerializer.deserializeEmailGetRequest(invocation.arguments.value) match {
+      case JsSuccess(emailGetRequest, _) => Right(emailGetRequest)
+      case errors: JsError => Left(new IllegalArgumentException(ResponseSerializer.serialize(errors).toString))
+    }
 
-  private def computeResponseInvocation(request: EmailGetRequest, invocation: Invocation, mailboxSession: MailboxSession): SMono[Invocation] =
+  private def computeResponseInvocation(capabilities: Set[CapabilityIdentifier], request: EmailGetRequest, invocation: Invocation, mailboxSession: MailboxSession): SMono[Invocation] =
     validateProperties(request)
       .flatMap(properties => validateBodyProperties(request).map((properties, _)))
       .fold(
-        e => SMono.raiseError(e), {
-          case (properties, bodyProperties) => getEmails(request, properties, mailboxSession)
+        e => SMono.error(e), {
+          case (properties, bodyProperties) => getEmails(capabilities, request, mailboxSession)
             .map(response => Invocation(
               methodName = methodName,
               arguments = Arguments(EmailGetSerializer.serialize(response, properties, bodyProperties).as[JsObject]),
@@ -137,22 +139,26 @@ class EmailGetMethod @Inject() (readerFactory: EmailViewReaderFactory,
         }
     }
 
-  private def asEmailGetRequest(arguments: Arguments): SMono[EmailGetRequest] =
-    EmailGetSerializer.deserializeEmailGetRequest(arguments.value) match {
-      case JsSuccess(emailGetRequest, _) => SMono.just(emailGetRequest)
-      case errors: JsError => SMono.raiseError(new IllegalArgumentException(ResponseSerializer.serialize(errors).toString))
+  private def getEmails(capabilities: Set[CapabilityIdentifier], request: EmailGetRequest, mailboxSession: MailboxSession): SMono[EmailGetResponse] =
+    request.ids match {
+      case None => SMono.error(new IllegalArgumentException("ids can not be ommited for email/get"))
+      case Some(ids) => getEmails(ids, mailboxSession, request)
+        .flatMap(result => retrieveState(capabilities, mailboxSession)
+          .map(state => EmailGetResponse(
+            accountId = request.accountId,
+            state = UuidState.fromJava(state),
+            list = result.emails.toList,
+            notFound = result.notFound)))
     }
 
-  private def getEmails(request: EmailGetRequest, properties: Properties, mailboxSession: MailboxSession): SMono[EmailGetResponse] =
-    request.ids match {
-      case None => SMono.raiseError(new IllegalArgumentException("ids can not be ommited for email/get"))
-      case Some(ids) => getEmails(ids, mailboxSession, request)
-        .map(result => EmailGetResponse(
-          accountId = request.accountId,
-          state = INSTANCE,
-          list = result.emails.toList,
-          notFound = result.notFound))
+  private def retrieveState(capabilities: Set[CapabilityIdentifier], mailboxSession: MailboxSession): SMono[JavaState] = {
+    val accountId: JavaAccountId = JavaAccountId.fromUsername(mailboxSession.getUser)
+    if (capabilities.contains(JAMES_SHARES)) {
+      SMono[JavaState](emailchangeRepository.getLatestStateWithDelegation(accountId))
+    } else {
+      SMono[JavaState](emailchangeRepository.getLatestState(accountId))
     }
+  }
 
   private def getEmails(ids: EmailIds, mailboxSession: MailboxSession, request: EmailGetRequest): SMono[EmailGetResults] = {
     val parsedIds: List[Either[(UnparsedEmailId, IllegalArgumentException),  MessageId]] = ids.value
@@ -169,12 +175,12 @@ class EmailGetMethod @Inject() (readerFactory: EmailViewReaderFactory,
     }))
 
     SFlux.merge(Seq(retrieveEmails(messagesIds, mailboxSession, request), parsingErrors))
-      .reduce(EmailGetResults.empty(), EmailGetResults.merge)
+      .reduce(EmailGetResults.empty())(EmailGetResults.merge)
   }
 
   private def asMessageId(id: UnparsedEmailId): Either[(UnparsedEmailId, IllegalArgumentException),  MessageId] =
     try {
-      Right(messageIdFactory.fromString(id))
+      Right(messageIdFactory.fromString(id.id))
     } catch {
       case e: Exception => Left((id, new IllegalArgumentException(e)))
     }
@@ -185,7 +191,7 @@ class EmailGetMethod @Inject() (readerFactory: EmailViewReaderFactory,
         .read(ids, request, mailboxSession)
         .collectMap(_.metadata.id)
 
-    foundResultsMono.flatMapMany(foundResults => SFlux.fromIterable(ids)
+    foundResultsMono.flatMapIterable(foundResults => ids
       .map(id => foundResults.get(id)
         .map(EmailGetResults.found)
         .getOrElse(EmailGetResults.notFound(id))))

@@ -39,17 +39,17 @@ import org.apache.james.protocols.smtp.utils.BaseFakeSMTPSession;
 import org.apache.james.smtpserver.fastfail.SpamAssassinHandler;
 import org.apache.james.spamassassin.SpamAssassinResult;
 import org.apache.james.spamassassin.mock.MockSpamd;
-import org.apache.james.spamassassin.mock.MockSpamdTestRule;
+import org.apache.james.spamassassin.mock.MockSpamdExtension;
 import org.apache.mailet.Attribute;
 import org.apache.mailet.AttributeValue;
 import org.apache.mailet.Mail;
 import org.apache.mailet.base.test.FakeMail;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import com.google.common.base.Preconditions;
 
-public class SpamAssassinHandlerTest {
+class SpamAssassinHandlerTest {
 
     private static final String SPAMD_HOST = "localhost";
     private static final Attribute FLAG_MAIL_ATTRIBUTE_NO = new Attribute(SpamAssassinResult.FLAG_MAIL, AttributeValue.of("NO"));
@@ -116,8 +116,8 @@ public class SpamAssassinHandlerTest {
 
     }
 
-    @Rule
-    public MockSpamdTestRule spamd = new MockSpamdTestRule();
+    @RegisterExtension
+    MockSpamdExtension spamd = new MockSpamdExtension();
 
     private Mail setupMockedMail(MimeMessage message) throws MessagingException {
         return FakeMail.builder()
@@ -126,14 +126,14 @@ public class SpamAssassinHandlerTest {
             .build();
     }
 
-    public MimeMessage setupMockedMimeMessage(String text) throws MessagingException {
+    private MimeMessage setupMockedMimeMessage(String text) throws MessagingException {
         return MimeMessageBuilder.mimeMessageBuilder()
             .setText(text)
             .build();
     }
 
     @Test
-    public void testNonSpam() throws Exception {
+    void testNonSpam() throws Exception {
         SMTPSession session = setupMockedSMTPSession(setupMockedMail(setupMockedMimeMessage("test")));
 
         SpamAssassinHandler handler = new SpamAssassinHandler(new RecordingMetricFactory());
@@ -150,7 +150,7 @@ public class SpamAssassinHandlerTest {
     }
 
     @Test
-    public void testSpam() throws Exception {
+    void testSpam() throws Exception {
         SMTPSession session = setupMockedSMTPSession(setupMockedMail(setupMockedMimeMessage(MockSpamd.GTUBE)));
 
         SpamAssassinHandler handler = new SpamAssassinHandler(new RecordingMetricFactory());
@@ -166,7 +166,7 @@ public class SpamAssassinHandlerTest {
     }
 
     @Test
-    public void testSpamReject() throws Exception {
+    void testSpamReject() throws Exception {
         SMTPSession session = setupMockedSMTPSession(setupMockedMail(setupMockedMimeMessage(MockSpamd.GTUBE)));
 
         SpamAssassinHandler handler = new SpamAssassinHandler(new RecordingMetricFactory());

@@ -32,7 +32,7 @@ public class CassandraId implements MailboxId, Serializable {
     public static class Factory implements MailboxId.Factory {
         @Override
         public CassandraId fromString(String serialized) {
-            return of(UUID.fromString(serialized));
+            return of(serialized);
         }
     }
     
@@ -44,6 +44,10 @@ public class CassandraId implements MailboxId, Serializable {
 
     public static CassandraId of(UUID id) {
         return new CassandraId(id);
+    }
+
+    public static CassandraId of(String serialized) {
+        return new CassandraId(UUID.fromString(serialized));
     }
 
     private CassandraId(UUID id) {

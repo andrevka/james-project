@@ -25,6 +25,7 @@ import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
@@ -41,23 +42,18 @@ import org.apache.james.mailets.configuration.ProcessorConfiguration;
 import org.apache.james.modules.protocols.ImapGuiceProbe;
 import org.apache.james.modules.protocols.SmtpGuiceProbe;
 import org.apache.james.probe.DataProbe;
-import org.apache.james.transport.mailets.amqp.AmqpRule;
+import org.apache.james.transport.mailets.amqp.AmqpExtension;
 import org.apache.james.transport.matchers.All;
 import org.apache.james.util.MimeMessageUtil;
-import org.apache.james.util.docker.DockerContainer;
-import org.apache.james.util.docker.Images;
-import org.apache.james.util.docker.RateLimiters;
 import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
 import org.apache.mailet.base.test.FakeMail;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.ClassRule;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
-import org.testcontainers.containers.wait.strategy.HostPortWaitStrategy;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.google.common.collect.ImmutableList;
 import com.jayway.jsonpath.Configuration;
@@ -428,18 +424,12 @@ public class ICSAttachmentWorkflowTest {
             "END:VCALENDAR\r\n" +
             "";
 
-    @ClassRule
-    public static DockerContainer rabbitMqContainer = DockerContainer.fromName(Images.RABBITMQ)
-        .withAffinityToContainer()
-        .waitingFor(new HostPortWaitStrategy().withRateLimiter(RateLimiters.TWENTIES_PER_SECOND));
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
-    public AmqpRule amqpRule = new AmqpRule(rabbitMqContainer, EXCHANGE_NAME, ROUTING_KEY);
 
-    @Rule
+    @RegisterExtension
+    public static AmqpExtension amqpExtension = new AmqpExtension(EXCHANGE_NAME, ROUTING_KEY);
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
@@ -449,8 +439,8 @@ public class ICSAttachmentWorkflowTest {
     private MimeMessage messageWithThreeICSAttached;
     private MimeMessage yahooInvitationMessage;
 
-    @Before
-    public void setup() throws Exception {
+    @BeforeEach
+    void setup(@TempDir File temporaryFolder) throws Exception {
         MailetContainer.Builder mailetContainer = TemporaryJamesServer.defaultMailetContainerConfiguration()
             .putProcessor(ProcessorConfiguration.transport()
                 .addMailet(MailetConfiguration.builder()
@@ -483,7 +473,7 @@ public class ICSAttachmentWorkflowTest {
                 .addMailet(MailetConfiguration.builder()
                     .matcher(All.class)
                     .mailet(AmqpForwardAttribute.class)
-                    .addProperty("uri", amqpRule.getAmqpUri())
+                    .addProperty("uri", amqpExtension.getAmqpUri())
                     .addProperty("exchange", EXCHANGE_NAME)
                     .addProperty("attribute", JSON_MAIL_ATTRIBUTE)
                     .addProperty("routing_key", ROUTING_KEY))
@@ -492,12 +482,13 @@ public class ICSAttachmentWorkflowTest {
         jamesServer = TemporaryJamesServer.builder()
             .withBase(MemoryJamesServerMain.SMTP_AND_IMAP_MODULE)
             .withMailetContainer(mailetContainer)
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         DataProbe dataProbe = jamesServer.getProbe(DataProbeImpl.class);
         dataProbe.addDomain(DEFAULT_DOMAIN);
         dataProbe.addUser(RECIPIENT, PASSWORD);
+        dataProbe.addUser(FROM, PASSWORD);
 
         messageWithoutICSAttached = MimeMessageBuilder.mimeMessageBuilder()
             .setMultipartWithBodyParts(
@@ -552,15 +543,15 @@ public class ICSAttachmentWorkflowTest {
             .build();
     }
 
-    @After
-    public void tearDown() throws Exception {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
-        amqpRule.readAll();
     }
 
     @Test
-    public void calendarAttachmentShouldNotBePublishedInMQWhenNoICalAttachment() throws Exception {
+    void calendarAttachmentShouldNotBePublishedInMQWhenNoICalAttachment() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithoutICSAttached)
@@ -572,12 +563,13 @@ public class ICSAttachmentWorkflowTest {
             .select(TestIMAPClient.INBOX)
             .awaitMessage(awaitAtMostOneMinute);
 
-        assertThat(amqpRule.readContent()).isEmpty();
+        assertThat(amqpExtension.readContent()).isEmpty();
     }
 
     @Test
-    public void calendarAttachmentShouldBePublishedInMQWhenMatchingWorkflowConfiguration() throws Exception {
+    void calendarAttachmentShouldBePublishedInMQWhenMatchingWorkflowConfiguration() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithICSAttached)
@@ -589,7 +581,7 @@ public class ICSAttachmentWorkflowTest {
             .select(TestIMAPClient.INBOX)
             .awaitMessage(awaitAtMostOneMinute);
 
-        Optional<String> content = amqpRule.readContent();
+        Optional<String> content = amqpExtension.readContent();
         assertThat(content).isPresent();
         DocumentContext jsonPath = toJsonPath(content.get());
         assertThat(jsonPath.<String>read("ical")).isEqualTo(ICS_1);
@@ -609,8 +601,9 @@ public class ICSAttachmentWorkflowTest {
     }
 
     @Test
-    public void headersShouldNotBeAddedInMailWhenNoICalAttachment() throws Exception {
+    void headersShouldNotBeAddedInMailWhenNoICalAttachment() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithoutICSAttached)
@@ -631,8 +624,9 @@ public class ICSAttachmentWorkflowTest {
     }
 
     @Test
-    public void headersShouldBeAddedInMailWhenOneICalAttachment() throws Exception {
+    void headersShouldBeAddedInMailWhenOneICalAttachment() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithICSAttached)
@@ -652,8 +646,9 @@ public class ICSAttachmentWorkflowTest {
     }
 
     @Test
-    public void headersShouldBeAddedInMailWhenOneBase64ICalAttachment() throws Exception {
+    void headersShouldBeAddedInMailWhenOneBase64ICalAttachment() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithICSBase64Attached)
@@ -673,8 +668,9 @@ public class ICSAttachmentWorkflowTest {
     }
 
     @Test
-    public void base64CalendarAttachmentShouldBePublishedInMQWhenMatchingWorkflowConfiguration() throws Exception {
+    void base64CalendarAttachmentShouldBePublishedInMQWhenMatchingWorkflowConfiguration() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithICSBase64Attached)
@@ -686,7 +682,7 @@ public class ICSAttachmentWorkflowTest {
             .select(TestIMAPClient.INBOX)
             .awaitMessage(awaitAtMostOneMinute);
 
-        Optional<String> content = amqpRule.readContent();
+        Optional<String> content = amqpExtension.readContent();
         assertThat(content).isPresent();
         DocumentContext jsonPath = toJsonPath(content.get());
         assertThat(jsonPath.<String>read("sender")).isEqualTo(FROM);
@@ -699,8 +695,9 @@ public class ICSAttachmentWorkflowTest {
     }
 
     @Test
-    public void yahooBase64CalendarAttachmentShouldBePublishedInMQWhenMatchingWorkflowConfiguration() throws Exception {
+    void yahooBase64CalendarAttachmentShouldBePublishedInMQWhenMatchingWorkflowConfiguration() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(yahooInvitationMessage)
@@ -712,7 +709,7 @@ public class ICSAttachmentWorkflowTest {
             .select(TestIMAPClient.INBOX)
             .awaitMessage(awaitAtMostOneMinute);
 
-        Optional<String> content = amqpRule.readContent();
+        Optional<String> content = amqpExtension.readContent();
         assertThat(content).isPresent();
         DocumentContext jsonPath = toJsonPath(content.get());
         assertThat(jsonPath.<String>read("sender")).isEqualTo("obmlinagora@yahoo.fr");
@@ -726,8 +723,9 @@ public class ICSAttachmentWorkflowTest {
     }
 
     @Test
-    public void headersShouldBeFilledOnlyWithOneICalAttachmentWhenMailHasSeveral() throws Exception {
+    void headersShouldBeFilledOnlyWithOneICalAttachmentWhenMailHasSeveral() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithThreeICSAttached)
@@ -747,8 +745,9 @@ public class ICSAttachmentWorkflowTest {
     }
 
     @Test
-    public void pipelineShouldSendSeveralJSONOverRabbitMQWhenSeveralAttachments() throws Exception {
+    void pipelineShouldSendSeveralJSONOverRabbitMQWhenSeveralAttachments() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(messageWithThreeICSAttached)
@@ -760,15 +759,15 @@ public class ICSAttachmentWorkflowTest {
             .select(TestIMAPClient.INBOX)
             .awaitMessage(awaitAtMostOneMinute);
 
-        Optional<String> content1 = amqpRule.readContent();
+        Optional<String> content1 = amqpExtension.readContent();
         assertThat(content1).isPresent();
         DocumentContext jsonPath1 = toJsonPath(content1.get());
 
-        Optional<String> content2 = amqpRule.readContent();
+        Optional<String> content2 = amqpExtension.readContent();
         assertThat(content2).isPresent();
         DocumentContext jsonPath2 = toJsonPath(content2.get());
 
-        Optional<String> content3 = amqpRule.readContent();
+        Optional<String> content3 = amqpExtension.readContent();
         assertThat(content3).isPresent();
         DocumentContext jsonPath3 = toJsonPath(content3.get());
 
@@ -780,14 +779,15 @@ public class ICSAttachmentWorkflowTest {
                 "f1514f44bf39311568d640727cff54e819573448d09d2e5677987ff29caa01a9e047feb2aab16e43439a608f28671ab7c10e754ce92be513f8e04ae9ff15e65a9819cf285a6962bd",
                 "f1514f44bf39311568d640727cff54e819573448d09d2e5677987ff29caa01a9e047feb2aab16e43439a608f28671ab7c10e754ce92be513f8e04ae9ff15e65a9819cf285a6962be");
 
-        assertThat(amqpRule.readContent()).isEmpty();
+        assertThat(amqpExtension.readContent()).isEmpty();
     }
 
     @Test
-    public void mailShouldNotContainCalendarContentInTextBodyButAttachment() throws Exception {
+    void mailShouldNotContainCalendarContentInTextBodyButAttachment() throws Exception {
         MimeMessage calendarMessage = MimeMessageUtil.mimeMessageFromStream(ClassLoader.getSystemResourceAsStream("eml/calendar.eml"));
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FakeMail.builder()
                 .name("name")
                 .mimeMessage(calendarMessage)

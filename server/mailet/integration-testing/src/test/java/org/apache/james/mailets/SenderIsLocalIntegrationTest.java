@@ -26,6 +26,8 @@ import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.apache.james.mailets.configuration.Constants.RECIPIENT;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 
+import java.io.File;
+
 import org.apache.james.MemoryJamesServerMain;
 import org.apache.james.mailets.configuration.CommonProcessors;
 import org.apache.james.mailets.configuration.MailetConfiguration;
@@ -43,38 +45,36 @@ import org.apache.james.utils.TestIMAPClient;
 import org.apache.james.utils.WebAdminGuiceProbe;
 import org.apache.james.webadmin.WebAdminUtils;
 import org.apache.james.webadmin.routes.AliasRoutes;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 import io.restassured.specification.RequestSpecification;
 
-public class SenderIsLocalIntegrationTest {
+class SenderIsLocalIntegrationTest {
     private static final String POSTMASTER = "postmaster@" + DEFAULT_DOMAIN;
     private static final MailRepositoryUrl LOCAL_SENDER_REPOSITORY = MailRepositoryUrl.from("memory://var/mail/local/sender/");
     private static final MailRepositoryUrl REMOTE_SENDER_REPOSITORY = MailRepositoryUrl.from("memory://var/mail/remote/sender/");
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
     private MailRepositoryProbeImpl probe;
     private RequestSpecification webAdminApi;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(@TempDir File temporaryFolder) throws Exception {
         jamesServer = TemporaryJamesServer.builder()
             .withBase(MemoryJamesServerMain.IN_MEMORY_SERVER_AGGREGATE_MODULE)
             .withMailetContainer(TemporaryJamesServer.defaultMailetContainerConfiguration()
                 .postmaster(POSTMASTER)
                 .putProcessor(transport()))
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
         probe = jamesServer.getProbe(MailRepositoryProbeImpl.class);
 
@@ -84,31 +84,33 @@ public class SenderIsLocalIntegrationTest {
         webAdminApi = WebAdminUtils.spec(jamesServer.getProbe(WebAdminGuiceProbe.class).getWebAdminPort());
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
     }
 
     @Test
-    public void shouldMatchLocalSender() throws Exception {
+    void shouldMatchLocalSender() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(RECIPIENT, RECIPIENT);
 
         awaitAtMostOneMinute.until(() -> probe.getRepositoryMailCount(LOCAL_SENDER_REPOSITORY) == 1);
     }
 
     @Test
-    public void shouldMatchLocalSenderAlias() throws Exception {
+    void shouldMatchLocalSenderAlias() throws Exception {
         webAdminApi.put(AliasRoutes.ROOT_PATH + "/" + RECIPIENT + "/sources/" + ALIAS);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(RECIPIENT, PASSWORD)
             .sendMessage(ALIAS, RECIPIENT);
 
         awaitAtMostOneMinute.until(() -> probe.getRepositoryMailCount(LOCAL_SENDER_REPOSITORY) == 1);
     }
 
     @Test
-    public void shouldNotMatchRemoteSender() throws Exception {
+    void shouldNotMatchRemoteSender() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
             .sendMessage("sender@domain.com", RECIPIENT);
 

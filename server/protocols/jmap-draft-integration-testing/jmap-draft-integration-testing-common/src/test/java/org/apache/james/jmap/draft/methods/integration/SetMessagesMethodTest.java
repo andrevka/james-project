@@ -49,7 +49,6 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
@@ -57,12 +56,14 @@ import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.collection.IsMapWithSize.aMapWithSize;
 import static org.hamcrest.collection.IsMapWithSize.anEmptyMap;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.util.Date;
 import java.util.List;
@@ -78,6 +79,7 @@ import org.apache.james.GuiceJamesServer;
 import org.apache.james.core.Domain;
 import org.apache.james.core.Username;
 import org.apache.james.core.quota.QuotaSizeLimit;
+import org.apache.james.events.Event;
 import org.apache.james.jmap.AccessToken;
 import org.apache.james.jmap.HttpJmapAuthentication;
 import org.apache.james.jmap.JmapCommonRequests;
@@ -88,8 +90,7 @@ import org.apache.james.junit.categories.BasicFeature;
 import org.apache.james.mailbox.DefaultMailboxes;
 import org.apache.james.mailbox.FlagsBuilder;
 import org.apache.james.mailbox.Role;
-import org.apache.james.mailbox.events.Event;
-import org.apache.james.mailbox.events.MailboxListener;
+import org.apache.james.mailbox.events.MailboxEvents.Added;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.AttachmentId;
 import org.apache.james.mailbox.model.AttachmentMetadata;
@@ -119,7 +120,7 @@ import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
 import org.apache.mailet.Mail;
 import org.apache.mailet.base.test.FakeMail;
-import org.awaitility.Duration;
+import org.assertj.core.api.SoftAssertions;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -144,12 +145,12 @@ import net.javacrumbs.jsonunit.core.internal.Options;
 public abstract class SetMessagesMethodTest {
     private static final String FORWARDED = "$Forwarded";
     private static final int _1MB = 1024 * 1024;
-    private static final Username USERNAME = Username.of("username@" + DOMAIN);
+    protected static final Username USERNAME = Username.of("username@" + DOMAIN);
     private static final String ALIAS_OF_USERNAME_MAIL = "alias@" + DOMAIN;
     private static final String GROUP_MAIL = "group@" + DOMAIN;
     private static final Username ALIAS_OF_USERNAME = Username.of(ALIAS_OF_USERNAME_MAIL);
     private static final String PASSWORD = "password";
-    private static final MailboxPath USER_MAILBOX = MailboxPath.forUser(USERNAME, "mailbox");
+    protected static final MailboxPath USER_MAILBOX = MailboxPath.forUser(USERNAME, "mailbox");
     private static final String NOT_UPDATED = ARGUMENTS + ".notUpdated";
     private static final int BIG_MESSAGE_SIZE = 20 * 1024 * 1024;
     public static final String OCTET_CONTENT_TYPE = "application/octet-stream";
@@ -161,11 +162,11 @@ public abstract class SetMessagesMethodTest {
 
     protected abstract MessageId randomMessageId();
 
-    private AccessToken accessToken;
-    private GuiceJamesServer jmapServer;
-    private MailboxProbe mailboxProbe;
+    protected AccessToken accessToken;
+    protected GuiceJamesServer jmapServer;
+    protected MailboxProbe mailboxProbe;
     private DataProbe dataProbe;
-    private MessageIdProbe messageProbe;
+    protected MessageIdProbe messageProbe;
     private ACLProbe aclProbe;
 
     @Before
@@ -247,7 +248,7 @@ public abstract class SetMessagesMethodTest {
             .body(ARGUMENTS + ".notDestroyed", hasEntry(equalTo(unknownMailboxMessageId), Matchers.allOf(
                 hasEntry("type", "notFound"),
                 hasEntry("description", "The message " + unknownMailboxMessageId + " can't be found"),
-                hasEntry(equalTo("properties"), is(emptyOrNullString()))))
+                hasEntry(equalTo("properties"), is(nullValue()))))
             );
     }
 
@@ -269,7 +270,7 @@ public abstract class SetMessagesMethodTest {
             .body(ARGUMENTS + ".notDestroyed", hasEntry(equalTo(messageId), Matchers.allOf(
                 hasEntry("type", "notFound"),
                 hasEntry("description", "The message " + messageId + " can't be found"),
-                hasEntry(equalTo("properties"), is(emptyOrNullString()))))
+                hasEntry(equalTo("properties"), is(nullValue()))))
             );
     }
 
@@ -355,7 +356,7 @@ public abstract class SetMessagesMethodTest {
             .body(NAME, equalTo("messagesSet"))
             .body(ARGUMENTS + ".destroyed", hasSize(2))
             .body(ARGUMENTS + ".notDestroyed", aMapWithSize(1))
-            .body(ARGUMENTS + ".destroyed", contains(message1.getMessageId().serialize(), message3.getMessageId().serialize()))
+            .body(ARGUMENTS + ".destroyed", containsInAnyOrder(message1.getMessageId().serialize(), message3.getMessageId().serialize()))
             .body(ARGUMENTS + ".notDestroyed", hasEntry(equalTo(missingMessageId), Matchers.allOf(
                 hasEntry("type", "notFound"),
                 hasEntry("description", "The message " + missingMessageId + " can't be found")))
@@ -421,6 +422,65 @@ public abstract class SetMessagesMethodTest {
         .then()
             .log().ifValidationFails()
             .spec(getSetMessagesUpdateOKResponseAssertions(serializedMessageId));
+    }
+
+    @Test
+    public void massiveFlagUpdateShouldBeApplied() throws MailboxException {
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USERNAME.asString(), "mailbox");
+
+        ComposedMessageId message1 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message2 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message3 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags(Flag.SEEN));
+        ComposedMessageId message4 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message5 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags(Flag.ANSWERED));
+        ComposedMessageId message6 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+
+        String serializedMessageId1 = message1.getMessageId().serialize();
+        String serializedMessageId2 = message2.getMessageId().serialize();
+        String serializedMessageId3 = message3.getMessageId().serialize();
+        String serializedMessageId4 = message4.getMessageId().serialize();
+        String serializedMessageId5 = message5.getMessageId().serialize();
+        String serializedMessageId6 = message6.getMessageId().serialize();
+
+        // When
+        given()
+            .header("Authorization", accessToken.asString())
+            .body(String.format("[[\"setMessages\", {\"update\": {" +
+                "  \"%s\" : { \"isUnread\" : false }, " +
+                "  \"%s\" : { \"isUnread\" : false }, " +
+                "  \"%s\" : { \"isUnread\" : false }, " +
+                "  \"%s\" : { \"isUnread\" : false }, " +
+                "  \"%s\" : { \"isUnread\" : false }, " +
+                "  \"%s\" : { \"isUnread\" : false } " +
+                "} }, \"#0\"]]", serializedMessageId1, serializedMessageId2, serializedMessageId3,
+                serializedMessageId4, serializedMessageId5, serializedMessageId6))
+        .when()
+            .post("/jmap")
+        // Then
+        .then()
+            .log().ifValidationFails().body(ARGUMENTS + ".updated", hasSize(6));
+
+        Flags flags1 = messageProbe.getMessages(message1.getMessageId(), USERNAME).iterator().next().getFlags();
+        Flags flags2 = messageProbe.getMessages(message1.getMessageId(), USERNAME).iterator().next().getFlags();
+        Flags flags3 = messageProbe.getMessages(message1.getMessageId(), USERNAME).iterator().next().getFlags();
+        Flags flags4 = messageProbe.getMessages(message1.getMessageId(), USERNAME).iterator().next().getFlags();
+        Flags flags5 = messageProbe.getMessages(message1.getMessageId(), USERNAME).iterator().next().getFlags();
+        Flags flags6 = messageProbe.getMessages(message1.getMessageId(), USERNAME).iterator().next().getFlags();
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(flags1).isEqualTo(new Flags(Flag.SEEN));
+            softly.assertThat(flags2).isEqualTo(new Flags(Flag.SEEN));
+            softly.assertThat(flags3).isEqualTo(new Flags(Flag.SEEN));
+            softly.assertThat(flags4).isEqualTo(new Flags(Flag.SEEN));
+            softly.assertThat(flags5).isEqualTo(new Flags(Flag.SEEN));
+            softly.assertThat(flags6).isEqualTo(new Flags(Flag.SEEN));
+        });
     }
 
     @Test
@@ -829,7 +889,7 @@ public abstract class SetMessagesMethodTest {
             .body(NOT_UPDATED + "[\"" + messageId + "\"].type", equalTo("invalidProperties"))
             .body(NOT_UPDATED + "[\"" + messageId + "\"].properties[0]", equalTo("isUnread"))
             .body(NOT_UPDATED + "[\"" + messageId + "\"].description", containsString("isUnread: Cannot deserialize value of type `java.lang.Boolean` from String \"123\": only \"true\" or \"false\" recognized"))
-            .body(NOT_UPDATED + "[\"" + messageId + "\"].description", containsString("{\"isUnread\":\"123\"}"))
+            .body(NOT_UPDATED + "[\"" + messageId + "\"].description", containsString("(through reference chain: org.apache.james.jmap.draft.model.UpdateMessagePatch$Builder[\"isUnread\"])"))
             .body(ARGUMENTS + ".updated", hasSize(0));
     }
 
@@ -1010,10 +1070,10 @@ public abstract class SetMessagesMethodTest {
             .body(ARGUMENTS + ".created", aMapWithSize(1))
             // assert server-set attributes are returned
             .body(ARGUMENTS + ".created", hasEntry(equalTo(messageCreationId), Matchers.allOf(
-                hasEntry(equalTo("id"), not(is(emptyOrNullString()))),
-                hasEntry(equalTo("blobId"), not(is(emptyOrNullString()))),
-                hasEntry(equalTo("threadId"), not(is(emptyOrNullString()))),
-                hasEntry(equalTo("size"), not(is(emptyOrNullString())))
+                hasEntry(equalTo("id"), not(is(nullValue()))),
+                hasEntry(equalTo("blobId"), not(is(nullValue()))),
+                hasEntry(equalTo("threadId"), not(is(nullValue()))),
+                hasEntry(equalTo("size"), not(is(nullValue())))
             )))
             // assert that message FLAGS are all unset
             .body(ARGUMENTS + ".created", hasEntry(equalTo(messageCreationId), Matchers.allOf(
@@ -1068,6 +1128,80 @@ public abstract class SetMessagesMethodTest {
             .body(NAME, equalTo("mailboxes"))
             .body(FIRST_MAILBOX + ".totalMessages", equalTo(0))
             .body(FIRST_MAILBOX + ".unreadMessages", equalTo(0));
+    }
+
+    @Test
+    public void massiveMessageMoveShouldBeApplied() throws MailboxException {
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USERNAME.asString(), "mailbox");
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USERNAME.asString(), DefaultMailboxes.DRAFTS);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USERNAME.asString(), DefaultMailboxes.OUTBOX);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USERNAME.asString(), DefaultMailboxes.SENT);
+        MailboxId mailboxId = mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USERNAME.asString(), DefaultMailboxes.TRASH);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USERNAME.asString(), DefaultMailboxes.SPAM);
+
+        ComposedMessageId message1 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message2 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message3 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags(Flags.Flag.SEEN));
+        ComposedMessageId message4 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message5 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags(Flags.Flag.ANSWERED));
+        ComposedMessageId message6 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message7 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message8 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message9 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags(Flags.Flag.SEEN));
+        ComposedMessageId message10 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+        ComposedMessageId message11 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags(Flags.Flag.ANSWERED));
+        ComposedMessageId message12 = mailboxProbe.appendMessage(USERNAME.asString(), USER_MAILBOX,
+            new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes(StandardCharsets.UTF_8)), new Date(), false, new Flags());
+
+        String serializedMessageId1 = message1.getMessageId().serialize();
+        String serializedMessageId2 = message2.getMessageId().serialize();
+        String serializedMessageId3 = message3.getMessageId().serialize();
+        String serializedMessageId4 = message4.getMessageId().serialize();
+        String serializedMessageId5 = message5.getMessageId().serialize();
+        String serializedMessageId6 = message6.getMessageId().serialize();
+        String serializedMessageId7 = message7.getMessageId().serialize();
+        String serializedMessageId8 = message8.getMessageId().serialize();
+        String serializedMessageId9 = message9.getMessageId().serialize();
+        String serializedMessageId10 = message10.getMessageId().serialize();
+        String serializedMessageId11 = message11.getMessageId().serialize();
+        String serializedMessageId12 = message12.getMessageId().serialize();
+
+        // When
+        given()
+            .header("Authorization", accessToken.asString())
+            .body(String.format("[[\"setMessages\", {\"update\": {" +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]}, " +
+                    "  \"%s\" : { \"mailboxIds\": [\"" + mailboxId.serialize() + "\"]} " +
+                    "} }, \"#0\"]]", serializedMessageId1, serializedMessageId2, serializedMessageId3,
+                serializedMessageId4, serializedMessageId5, serializedMessageId6,
+                serializedMessageId7, serializedMessageId8, serializedMessageId9,
+                serializedMessageId10, serializedMessageId11, serializedMessageId12))
+            .when()
+            .post("/jmap")
+            // Then
+            .then()
+            .log().ifValidationFails().body(ARGUMENTS + ".updated", hasSize(12));
     }
 
     @Category(BasicFeature.class)
@@ -1480,7 +1614,7 @@ public abstract class SetMessagesMethodTest {
         }
 
         calmlyAwait
-            .pollDelay(Duration.FIVE_HUNDRED_MILLISECONDS)
+            .pollDelay(Duration.ofMillis(500))
             .atMost(30, TimeUnit.SECONDS).until(() -> hasANewMailWithBody(accessToken, body));
     }
 
@@ -2226,7 +2360,7 @@ public abstract class SetMessagesMethodTest {
             .post("/jmap");
 
         calmlyAwait
-            .pollDelay(Duration.FIVE_HUNDRED_MILLISECONDS)
+            .pollDelay(Duration.ofMillis(500))
             .atMost(30, TimeUnit.SECONDS).until(() -> isAnyMessageFoundInRecipientsMailboxes(bobAccessToken));
     }
 
@@ -2280,7 +2414,7 @@ public abstract class SetMessagesMethodTest {
             .post("/jmap");
 
         calmlyAwait
-            .pollDelay(Duration.FIVE_HUNDRED_MILLISECONDS)
+            .pollDelay(Duration.ofMillis(500))
             .atMost(30, TimeUnit.SECONDS).until(() -> isAnyMessageFoundInRecipientsMailboxes(bobAccessToken));
     }
 
@@ -2434,7 +2568,7 @@ public abstract class SetMessagesMethodTest {
             "]";
 
         EventCollector eventCollector = new EventCollector();
-        jmapServer.getProbe(JmapGuiceProbe.class).addMailboxListener(eventCollector);
+        jmapServer.getProbe(JmapGuiceProbe.class).addEventListener(eventCollector);
 
         String messageId = with()
             .header("Authorization", accessToken.asString())
@@ -2453,10 +2587,10 @@ public abstract class SetMessagesMethodTest {
     }
 
     private boolean isAddedToOutboxEvent(String messageId, Event event, String outboxId) {
-        if (!(event instanceof MailboxListener.Added)) {
+        if (!(event instanceof Added)) {
             return false;
         }
-        MailboxListener.Added added = (MailboxListener.Added) event;
+        Added added = (Added) event;
         return added.getMailboxId().serialize().equals(outboxId)
             && added.getUids().size() == 1
             && added.getMetaData(added.getUids().iterator().next()).getMessageId().serialize().equals(messageId);
@@ -2660,7 +2794,7 @@ public abstract class SetMessagesMethodTest {
             .body(ARGUMENTS + ".created[\"" + messageCreationId + "\"].from.email", equalTo(ALIAS_OF_USERNAME_MAIL));
 
         calmlyAwait
-            .pollDelay(Duration.FIVE_HUNDRED_MILLISECONDS)
+            .pollDelay(Duration.ofMillis(500))
             .atMost(30, TimeUnit.SECONDS).until(() -> isAnyMessageFoundInRecipientsMailboxes(bobAccessToken));
 
     }
@@ -2704,7 +2838,7 @@ public abstract class SetMessagesMethodTest {
             .body(ARGUMENTS + ".created[\"" + messageCreationId + "\"].from.email", equalTo(alias));
 
         calmlyAwait
-            .pollDelay(Duration.FIVE_HUNDRED_MILLISECONDS)
+            .pollDelay(Duration.ofMillis(500))
             .atMost(30, TimeUnit.SECONDS).until(() -> isAnyMessageFoundInRecipientsMailboxes(bobAccessToken));
     }
 
@@ -3916,7 +4050,7 @@ public abstract class SetMessagesMethodTest {
             .body(ARGUMENTS + ".notCreated", hasKey(messageCreationId))
             .body(notCreatedPath + ".type", equalTo("invalidProperties"))
             .body(notCreatedPath + ".properties", contains("attachments"))
-            .body(notCreatedPath + ".attachmentsNotFound", contains("brokenId1", "brokenId2"))
+            .body(notCreatedPath + ".attachmentsNotFound", containsInAnyOrder("brokenId1", "brokenId2"))
             .body(ARGUMENTS + ".created", aMapWithSize(0));
     }
 
@@ -4575,7 +4709,7 @@ public abstract class SetMessagesMethodTest {
             .body(NAME, equalTo("messages"))
             .body(ARGUMENTS + ".list", hasSize(1))
             .body(firstMessage + ".textBody", equalTo("Test body, plain text version"))
-            .body(firstMessage + ".htmlBody", is(emptyOrNullString()))
+            .body(firstMessage + ".htmlBody", is(nullValue()))
             .body(firstMessage + ".attachments", hasSize(1))
             .body(firstAttachment + ".type", equalTo("text/html; charset=UTF-8"))
             .body(firstAttachment + ".size", equalTo((int) uploadedAttachment.getSize()))
@@ -4659,8 +4793,8 @@ public abstract class SetMessagesMethodTest {
             .log().ifValidationFails()
             .body(NAME, equalTo("messages"))
             .body(ARGUMENTS + ".list", hasSize(1))
-            .body(firstMessage + ".textBody", is(emptyOrNullString()))
-            .body(firstMessage + ".htmlBody", is(emptyOrNullString()))
+            .body(firstMessage + ".textBody", is(nullValue()))
+            .body(firstMessage + ".htmlBody", is(nullValue()))
             .body(firstMessage + ".attachments", hasSize(1))
             .body(firstAttachment + ".type", equalTo("text/plain; charset=UTF-8"))
             .body(firstAttachment + ".size", equalTo((int) uploadedAttachment.getSize()))
@@ -4785,7 +4919,7 @@ public abstract class SetMessagesMethodTest {
 
     private Matcher<Map<? extends String, ? extends String>> allHeadersMatcher(ImmutableList<String> expectedHeaders) {
         return Matchers.allOf(expectedHeaders.stream()
-                .map((String header) -> hasEntry(equalTo(header), not(is(emptyOrNullString()))))
+                .map((String header) -> hasEntry(equalTo(header), not(is(nullValue()))))
                 .collect(Collectors.toList()));
     }
 
@@ -5684,7 +5818,7 @@ public abstract class SetMessagesMethodTest {
             .recipient(fromAddress)
             .build();
         try (SMTPMessageSender messageSender = SMTPMessageSender.noAuthentication(LOCALHOST_IP, jmapServer.getProbe(SmtpGuiceProbe.class).getSmtpPort().getValue(), DOMAIN)) {
-            messageSender.sendMessage(mail);
+            messageSender.authenticate(USERNAME.asString(), PASSWORD).sendMessage(mail);
         }
 
         calmlyAwait.atMost(30, TimeUnit.SECONDS).until(() -> isAnyMessageFoundInInbox(accessToken));
@@ -5714,7 +5848,7 @@ public abstract class SetMessagesMethodTest {
             .body(ARGUMENTS + ".list", hasSize(1))
             .body(message + ".attachments", hasSize(1))
             .body(firstAttachment + ".type", equalTo("text/calendar; method=REPLY; charset=UTF-8"))
-            .body(firstAttachment + ".blobId", not(is(emptyOrNullString())));
+            .body(firstAttachment + ".blobId", not(is(nullValue())));
     }
 
     @Test

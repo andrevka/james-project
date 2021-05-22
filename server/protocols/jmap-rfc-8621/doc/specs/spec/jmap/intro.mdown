@@ -45,9 +45,8 @@ signature. These have the following meanings:
 
 ## The Id Data Type
 
-<aside class="notice">
-  Implemented
-</aside>
+> :information_source:
+> Implemented
 
 All record ids are assigned by the server and are immutable.
 
@@ -70,10 +69,6 @@ A good solution to these issues is to prefix every id with a single
 alphabetical character.
 
 ## The Int and UnsignedInt Data Types
-
-<aside class="notice">
-  Implemented
-</aside>
 
 Where `Int` is given as a data type, it means an integer in the range -2^53+1 <= value <= 2^53-1, the safe range for integers stored in a floating-point double, represented as a JSON `Number`.
 

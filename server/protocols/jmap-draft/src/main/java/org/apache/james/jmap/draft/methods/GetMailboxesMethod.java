@@ -19,8 +19,8 @@
 
 package org.apache.james.jmap.draft.methods;
 
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
 import static org.apache.james.util.ReactorUtils.context;
-import static org.apache.james.util.ReactorUtils.publishIfPresent;
 
 import java.util.Comparator;
 import java.util.List;
@@ -36,6 +36,7 @@ import org.apache.james.jmap.draft.model.MailboxProperty;
 import org.apache.james.jmap.draft.model.MethodCallId;
 import org.apache.james.jmap.draft.model.mailbox.Mailbox;
 import org.apache.james.jmap.draft.utils.quotas.QuotaLoaderWithDefaultPreloaded;
+import org.apache.james.jmap.http.DefaultMailboxesProvisioner;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.model.MailboxId;
@@ -55,7 +56,6 @@ import com.google.common.collect.Sets;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 public class GetMailboxesMethod implements Method {
 
@@ -69,15 +69,17 @@ public class GetMailboxesMethod implements Method {
     private final MetricFactory metricFactory;
     private final QuotaRootResolver quotaRootResolver;
     private final QuotaManager quotaManager;
+    private final DefaultMailboxesProvisioner provisioner;
 
     @Inject
     @VisibleForTesting
-    public GetMailboxesMethod(MailboxManager mailboxManager, QuotaRootResolver quotaRootResolver, QuotaManager quotaManager, MailboxFactory mailboxFactory, MetricFactory metricFactory) {
+    public GetMailboxesMethod(MailboxManager mailboxManager, QuotaRootResolver quotaRootResolver, QuotaManager quotaManager, MailboxFactory mailboxFactory, MetricFactory metricFactory, DefaultMailboxesProvisioner provisioner) {
         this.mailboxManager = mailboxManager;
         this.mailboxFactory = mailboxFactory;
         this.metricFactory = metricFactory;
         this.quotaRootResolver = quotaRootResolver;
         this.quotaManager = quotaManager;
+        this.provisioner = provisioner;
     }
 
     @Override
@@ -95,9 +97,9 @@ public class GetMailboxesMethod implements Method {
         Preconditions.checkArgument(request instanceof GetMailboxesRequest);
         GetMailboxesRequest mailboxesRequest = (GetMailboxesRequest) request;
 
-        return metricFactory.decorateSupplierWithTimerMetricLogP99(JMAP_PREFIX + METHOD_NAME.getName(),
-            () -> process(methodCallId, mailboxSession, mailboxesRequest)
-            .subscriberContext(context(ACTION, mdc(mailboxesRequest))));
+        return Flux.from(metricFactory.decoratePublisherWithTimerMetric(JMAP_PREFIX + METHOD_NAME.getName(),
+            process(methodCallId, mailboxSession, mailboxesRequest)
+                .subscriberContext(context(ACTION, mdc(mailboxesRequest)))));
     }
 
     private MDCBuilder mdc(GetMailboxesRequest mailboxesRequest) {
@@ -109,12 +111,13 @@ public class GetMailboxesMethod implements Method {
     }
 
     private Flux<JmapResponse> process(MethodCallId methodCallId, MailboxSession mailboxSession, GetMailboxesRequest mailboxesRequest) {
-        return Flux.from(getMailboxesResponse(mailboxesRequest, mailboxSession)
-            .map(response -> JmapResponse.builder().methodCallId(methodCallId)
-                .response(response)
-                .properties(mailboxesRequest.getProperties().map(this::ensureContainsId))
-                .responseName(RESPONSE_NAME)
-                .build()));
+        return provisioner.createMailboxesIfNeeded(mailboxSession)
+            .thenMany(Flux.from(getMailboxesResponse(mailboxesRequest, mailboxSession)
+                .map(response -> JmapResponse.builder().methodCallId(methodCallId)
+                    .response(response)
+                    .properties(mailboxesRequest.getProperties().map(this::ensureContainsId))
+                    .responseName(RESPONSE_NAME)
+                    .build())));
     }
 
     private Set<MailboxProperty> ensureContainsId(Set<MailboxProperty> input) {
@@ -138,32 +141,26 @@ public class GetMailboxesMethod implements Method {
 
     private Flux<Mailbox> retrieveSpecificMailboxes(MailboxSession mailboxSession, ImmutableList<MailboxId> mailboxIds) {
         return Flux.fromIterable(mailboxIds)
-            .flatMap(mailboxId -> Mono.fromCallable(() ->
-                mailboxFactory.builder()
+            .flatMap(mailboxId -> mailboxFactory.builder()
                     .id(mailboxId)
                     .session(mailboxSession)
                     .usingPreloadedMailboxesMetadata(NO_PRELOADED_METADATA)
-                    .build())
-                .subscribeOn(Schedulers.elastic()))
-            .handle(publishIfPresent());
+                    .build(), DEFAULT_CONCURRENCY);
     }
 
     private Flux<Mailbox> retrieveAllMailboxes(MailboxSession mailboxSession) {
         Mono<List<MailboxMetaData>> userMailboxesMono = getAllMailboxesMetaData(mailboxSession).collectList();
-        Mono<QuotaLoaderWithDefaultPreloaded> quotaLoaderMono = Mono.fromCallable(() ->
-            new QuotaLoaderWithDefaultPreloaded(quotaRootResolver, quotaManager, mailboxSession))
-            .subscribeOn(Schedulers.elastic());
+        Mono<QuotaLoaderWithDefaultPreloaded> quotaLoaderMono = QuotaLoaderWithDefaultPreloaded.preLoad(quotaRootResolver, quotaManager, mailboxSession);
 
         return userMailboxesMono.zipWith(quotaLoaderMono)
             .flatMapMany(
                 tuple -> Flux.fromIterable(tuple.getT1())
-                    .map(mailboxMetaData -> mailboxFactory.builder()
+                    .flatMap(mailboxMetaData -> mailboxFactory.builder()
                         .mailboxMetadata(mailboxMetaData)
                         .session(mailboxSession)
                         .usingPreloadedMailboxesMetadata(Optional.of(tuple.getT1()))
                         .quotaLoader(tuple.getT2())
-                        .build())
-                    .handle(publishIfPresent()));
+                        .build()));
     }
 
     private Flux<MailboxMetaData> getAllMailboxesMetaData(MailboxSession mailboxSession) {

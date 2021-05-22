@@ -21,7 +21,9 @@ package org.apache.james.mailbox.cassandra.mail;
 
 import static org.apache.james.backends.cassandra.Scenario.Builder.fail;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Durations.ONE_SECOND;
 
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.Optional;
 
@@ -31,6 +33,7 @@ import org.apache.james.backends.cassandra.CassandraCluster;
 import org.apache.james.backends.cassandra.CassandraClusterExtension;
 import org.apache.james.backends.cassandra.StatementRecorder;
 import org.apache.james.backends.cassandra.StatementRecorder.Selector;
+import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.cassandra.ids.CassandraId;
 import org.apache.james.mailbox.cassandra.ids.CassandraMessageId;
@@ -43,6 +46,7 @@ import org.apache.james.mailbox.store.mail.model.MapperProvider;
 import org.apache.james.mailbox.store.mail.model.MessageMapperTest;
 import org.apache.james.util.streams.Limit;
 import org.assertj.core.api.SoftAssertions;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -58,7 +62,8 @@ class CassandraMessageMapperTest extends MessageMapperTest {
     protected MapperProvider createMapperProvider() {
         return new CassandraMapperProvider(
             cassandraCluster.getCassandraCluster(),
-            cassandraCluster.getCassandraConsistenciesConfiguration());
+            cassandraCluster.getCassandraConsistenciesConfiguration(),
+            CassandraConfiguration.DEFAULT_CONFIGURATION);
     }
 
     @Nested
@@ -67,7 +72,6 @@ class CassandraMessageMapperTest extends MessageMapperTest {
         void updateFlagsShouldNotRetryOnDeletedMessages(CassandraCluster cassandra) throws MailboxException {
             saveMessages();
 
-            cassandra.getConf().printStatements();
             cassandra.getConf()
                 .registerScenario(fail()
                     .forever()
@@ -95,7 +99,6 @@ class CassandraMessageMapperTest extends MessageMapperTest {
 
             StatementRecorder statementRecorder = new StatementRecorder();
             cassandra.getConf().recordStatements(statementRecorder);
-            cassandra.getConf().printStatements();
 
             messageMapper.deleteMessages(benwaInboxMailbox, ImmutableList.of(message1.getUid(), message2.getUid(), message3.getUid()));
 
@@ -111,7 +114,6 @@ class CassandraMessageMapperTest extends MessageMapperTest {
 
             StatementRecorder statementRecorder = new StatementRecorder();
             cassandra.getConf().recordStatements(statementRecorder);
-            cassandra.getConf().printStatements();
 
             messageMapper.deleteMessages(benwaInboxMailbox, ImmutableList.of(message1.getUid(), message2.getUid(), message3.getUid()));
 
@@ -126,7 +128,6 @@ class CassandraMessageMapperTest extends MessageMapperTest {
 
             StatementRecorder statementRecorder = new StatementRecorder();
             cassandra.getConf().recordStatements(statementRecorder);
-            cassandra.getConf().printStatements();
 
             messageMapper.deleteMessages(benwaInboxMailbox, ImmutableList.of(message1.getUid(), message2.getUid(), message3.getUid()));
 
@@ -141,7 +142,6 @@ class CassandraMessageMapperTest extends MessageMapperTest {
 
             StatementRecorder statementRecorder = new StatementRecorder();
             cassandra.getConf().recordStatements(statementRecorder);
-            cassandra.getConf().printStatements();
 
             messageMapper.deleteMessages(benwaInboxMailbox, ImmutableList.of(message1.getUid(), message2.getUid(), message3.getUid()));
 
@@ -158,7 +158,6 @@ class CassandraMessageMapperTest extends MessageMapperTest {
 
             StatementRecorder statementRecorder = new StatementRecorder();
             cassandra.getConf().recordStatements(statementRecorder);
-            cassandra.getConf().printStatements();
 
             messageMapper.deleteMessages(benwaInboxMailbox, ImmutableList.of(message1.getUid(), message2.getUid(), message3.getUid()));
 
@@ -173,7 +172,6 @@ class CassandraMessageMapperTest extends MessageMapperTest {
 
             StatementRecorder statementRecorder = new StatementRecorder();
             cassandra.getConf().recordStatements(statementRecorder);
-            cassandra.getConf().printStatements();
 
             messageMapper.updateFlags(benwaInboxMailbox, new FlagsUpdateCalculator(new Flags(Flags.Flag.SEEN), MessageManager.FlagsUpdateMode.REPLACE), MessageRange.all());
 
@@ -195,7 +193,7 @@ class CassandraMessageMapperTest extends MessageMapperTest {
 
 
             assertThat(statementRecorder.listExecutedStatements(Selector.preparedStatement(
-                "SELECT * FROM messageV2 WHERE messageId=:messageId;")))
+                "SELECT * FROM messageV3 WHERE messageId=:messageId;")))
                 .hasSize(limit);
         }
 
@@ -225,7 +223,7 @@ class CassandraMessageMapperTest extends MessageMapperTest {
             cassandra.getConf()
                 .registerScenario(fail()
                     .forever()
-                    .whenQueryStartsWith("INSERT INTO messageV2 (messageId,internalDate,bodyStartOctet,fullContentOctets,bodyOctets,bodyContent,headerContent,properties,textualLineCount,attachments)"));
+                    .whenQueryStartsWith("INSERT INTO messageV3"));
 
             try {
                 messageMapper.add(benwaInboxMailbox, message1);
@@ -328,7 +326,8 @@ class CassandraMessageMapperTest extends MessageMapperTest {
             CassandraMessageIdToImapUidDAO imapUidDAO = new CassandraMessageIdToImapUidDAO(
                 cassandra.getConf(),
                 cassandraCluster.getCassandraConsistenciesConfiguration(),
-                new CassandraMessageId.Factory());
+                new CassandraMessageId.Factory(),
+                CassandraConfiguration.DEFAULT_CONFIGURATION);
 
             SoftAssertions.assertSoftly(Throwing.consumer(softly -> {
                 softly.assertThat(messageMapper.findInMailbox(benwaInboxMailbox, MessageRange.all(), FetchType.Metadata, 1))
@@ -351,6 +350,65 @@ class CassandraMessageMapperTest extends MessageMapperTest {
             assertThat(messageMapper.findInMailbox(benwaInboxMailbox, MessageRange.all(), FetchType.Metadata, 1))
                 .toIterable()
                 .hasSize(1);
+        }
+    }
+
+    @Nested
+    class ReadRepairsTesting {
+        @Test
+        void readingShouldEventuallyFixCountersInconsistencies(CassandraCluster cassandra) throws MailboxException {
+            saveMessages();
+            FlagsUpdateCalculator newFlags = new FlagsUpdateCalculator(new Flags(Flags.Flag.SEEN), MessageManager.FlagsUpdateMode.REPLACE);
+            messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(), newFlags);
+            // Expected count of unseen is 4 see MessageMapperTest::mailboxUnSeenCountShouldBeDecrementedAfterAMessageIsMarkedSeen
+
+            // Create an inconsistency
+            new CassandraMailboxCounterDAO(cassandra.getConf())
+                .incrementUnseenAndCount((CassandraId) benwaInboxMailbox.getMailboxId())
+                .block();
+
+            // 100 poll with a 0.1 probability to trigger read repair
+            Awaitility.await()
+                .pollInterval(Duration.ofMillis(10))
+                .atMost(ONE_SECOND)
+                .untilAsserted(() ->
+                    assertThat(messageMapper.getMailboxCounters(benwaInboxMailbox).getUnseen()).isEqualTo(4));
+        }
+
+        @Test
+        void readingShouldEventuallyFixMissingCountersInconsistencies(CassandraCluster cassandra) throws MailboxException {
+            saveMessages();
+            FlagsUpdateCalculator newFlags = new FlagsUpdateCalculator(new Flags(Flags.Flag.SEEN), MessageManager.FlagsUpdateMode.REPLACE);
+            messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(), newFlags);
+            // Expected count of unseen is 4 see MessageMapperTest::mailboxUnSeenCountShouldBeDecrementedAfterAMessageIsMarkedSeen
+
+            // Create an inconsistency
+            new CassandraMailboxCounterDAO(cassandra.getConf())
+                .delete((CassandraId) benwaInboxMailbox.getMailboxId())
+                .block();
+
+            // 100 poll with a 0.1 probability to trigger read repair
+            Awaitility.await()
+                .pollInterval(Duration.ofMillis(10))
+                .atMost(ONE_SECOND)
+                .untilAsserted(() ->
+                    assertThat(messageMapper.getMailboxCounters(benwaInboxMailbox).getUnseen()).isEqualTo(4));
+        }
+
+        @Test
+        void readingShouldFixInvalidCounters(CassandraCluster cassandra) throws MailboxException {
+            saveMessages();
+            FlagsUpdateCalculator newFlags = new FlagsUpdateCalculator(new Flags(Flags.Flag.SEEN), MessageManager.FlagsUpdateMode.REPLACE);
+            messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(), newFlags);
+            // Expected count of unseen is 4 see MessageMapperTest::mailboxUnSeenCountShouldBeDecrementedAfterAMessageIsMarkedSeen
+
+            // Create an inconsistency
+            new CassandraMailboxCounterDAO(cassandra.getConf())
+                .incrementUnseen((CassandraId) benwaInboxMailbox.getMailboxId())
+                .repeat(5)
+                .blockLast();
+
+            assertThat(messageMapper.getMailboxCounters(benwaInboxMailbox).getUnseen()).isEqualTo(4);
         }
     }
 }

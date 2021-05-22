@@ -18,6 +18,8 @@
  ****************************************************************/
 package org.apache.james.imap.message.request;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.Date;
 
@@ -26,19 +28,20 @@ import javax.mail.Flags;
 import org.apache.james.imap.api.ImapConstants;
 import org.apache.james.imap.api.Tag;
 import org.apache.james.imap.api.message.request.ImapRequest;
+import org.apache.james.imap.message.Literal;
 
 import com.google.common.base.MoreObjects;
 
 /**
  * {@link ImapRequest} which request the append of a message to a mailbox
  */
-public class AppendRequest extends AbstractImapRequest {
+public class AppendRequest extends AbstractImapRequest implements Closeable {
     private final String mailboxName;
     private final Flags flags;
     private final Date datetime;
-    private final InputStream message;
+    private final Literal message;
 
-    public AppendRequest(String mailboxName, Flags flags, Date datetime, InputStream message, Tag tag) {
+    public AppendRequest(String mailboxName, Flags flags, Date datetime, Literal message, Tag tag) {
         super(tag, ImapConstants.APPEND_COMMAND);
         this.mailboxName = mailboxName;
         this.flags = flags;
@@ -78,7 +81,7 @@ public class AppendRequest extends AbstractImapRequest {
      * 
      * @return message
      */
-    public InputStream getMessage() {
+    public Literal getMessage() {
         return message;
     }
 
@@ -90,5 +93,12 @@ public class AppendRequest extends AbstractImapRequest {
             .add("datetime", datetime)
             .add("message", message)
             .toString();
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (message instanceof Closeable) {
+            ((Closeable) message).close();
+        }
     }
 }

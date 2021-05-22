@@ -41,8 +41,12 @@ import org.junit.jupiter.api.{BeforeEach, Tag, Test}
 object SessionRoutesContract {
   private val expected_session_object: String = """{
                          |  "capabilities" : {
+                         |    "urn:ietf:params:jmap:submission": {
+                         |      "maxDelayedSend": 0,
+                         |      "submissionExtensions": []
+                         |    },
                          |    "urn:ietf:params:jmap:core" : {
-                         |      "maxSizeUpload" : 10000000,
+                         |      "maxSizeUpload" : 20971520,
                          |      "maxConcurrentUpload" : 4,
                          |      "maxSizeRequest" : 10000000,
                          |      "maxConcurrentRequests" : 4,
@@ -56,12 +60,17 @@ object SessionRoutesContract {
                          |      "maxMailboxDepth" : null,
                          |      "maxSizeMailboxName" : 200,
                          |      "maxSizeAttachmentsPerEmail" : 20000000,
-                         |      "emailQuerySortOptions" : ["receivedAt", "sentAt"],
+                         |      "emailQuerySortOptions" : ["receivedAt", "sentAt", "size", "from", "to", "subject"],
                          |      "mayCreateTopLevelMailbox" : true
+                         |    },
+                         |    "urn:ietf:params:jmap:websocket": {
+                         |      "supportsPush": true,
+                         |      "url": "ws://domain.com/jmap/ws"
                          |    },
                          |    "urn:apache:james:params:jmap:mail:quota": {},
                          |    "urn:apache:james:params:jmap:mail:shares": {},
-                         |    "urn:ietf:params:jmap:vacationresponse":{}
+                         |    "urn:ietf:params:jmap:vacationresponse":{},
+                         |    "urn:ietf:params:jmap:mdn":{}
                          |  },
                          |  "accounts" : {
                          |    "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6" : {
@@ -69,8 +78,16 @@ object SessionRoutesContract {
                          |      "isPersonal" : true,
                          |      "isReadOnly" : false,
                          |      "accountCapabilities" : {
+                         |        "urn:ietf:params:jmap:submission": {
+                         |          "maxDelayedSend": 0,
+                         |          "submissionExtensions": []
+                         |        },
+                         |        "urn:ietf:params:jmap:websocket": {
+                         |            "supportsPush": true,
+                         |            "url": "ws://domain.com/jmap/ws"
+                         |        },
                          |        "urn:ietf:params:jmap:core" : {
-                         |          "maxSizeUpload" : 10000000,
+                         |          "maxSizeUpload" : 20971520,
                          |          "maxConcurrentUpload" : 4,
                          |          "maxSizeRequest" : 10000000,
                          |          "maxConcurrentRequests" : 4,
@@ -84,28 +101,32 @@ object SessionRoutesContract {
                          |          "maxMailboxDepth" : null,
                          |          "maxSizeMailboxName" : 200,
                          |          "maxSizeAttachmentsPerEmail" : 20000000,
-                         |          "emailQuerySortOptions" : ["receivedAt", "sentAt"],
+                         |          "emailQuerySortOptions" : ["receivedAt", "sentAt", "size", "from", "to", "subject"],
                          |          "mayCreateTopLevelMailbox" : true
                          |        },
                          |        "urn:apache:james:params:jmap:mail:quota": {},
                          |        "urn:apache:james:params:jmap:mail:shares": {},
-                         |        "urn:ietf:params:jmap:vacationresponse":{}
+                         |        "urn:ietf:params:jmap:vacationresponse":{},
+                         |        "urn:ietf:params:jmap:mdn":{}
                          |      }
                          |    }
                          |  },
                          |  "primaryAccounts" : {
+                         |    "urn:ietf:params:jmap:submission": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+                         |    "urn:ietf:params:jmap:websocket": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
                          |    "urn:ietf:params:jmap:core" : "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
                          |    "urn:ietf:params:jmap:mail" : "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
                          |    "urn:apache:james:params:jmap:mail:quota": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
                          |    "urn:apache:james:params:jmap:mail:shares": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-                         |    "urn:ietf:params:jmap:vacationresponse": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6"
+                         |    "urn:ietf:params:jmap:vacationresponse": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+                         |    "urn:ietf:params:jmap:mdn": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6"
                          |  },
                          |  "username" : "bob@domain.tld",
                          |  "apiUrl" : "http://domain.com/jmap",
-                         |  "downloadUrl" : "http://domain.com/download/$accountId/$blobId/?type=$type&name=$name",
-                         |  "uploadUrl" : "http://domain.com/upload",
-                         |  "eventSourceUrl" : "http://domain.com/eventSource",
-                         |  "state" : "000001"
+                         |  "downloadUrl" : "http://domain.com/download/{accountId}/{blobId}/?type={type}&name={name}",
+                         |  "uploadUrl" : "http://domain.com/upload/{accountId}",
+                         |  "eventSourceUrl" : "http://domain.com/eventSource?types={types}&closeAfter={closeafter}&ping={ping}",
+                         |  "state" : "2c9f1b12-b35a-43e6-9af2-0106fb53a943"
                          |}""".stripMargin
   private val EXPECTED_BASE_PATH: String = "/jmap"
 }

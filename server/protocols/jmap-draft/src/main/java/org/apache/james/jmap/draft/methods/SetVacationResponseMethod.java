@@ -24,7 +24,7 @@ import static org.apache.james.util.ReactorUtils.context;
 
 import javax.inject.Inject;
 
-import org.apache.james.jmap.api.vacation.AccountId;
+import org.apache.james.jmap.api.model.AccountId;
 import org.apache.james.jmap.api.vacation.NotificationRegistry;
 import org.apache.james.jmap.api.vacation.Vacation;
 import org.apache.james.jmap.api.vacation.VacationRepository;
@@ -80,10 +80,10 @@ public class SetVacationResponseMethod implements Method {
         Preconditions.checkArgument(request instanceof SetVacationRequest);
         SetVacationRequest setVacationRequest = (SetVacationRequest) request;
 
-        return metricFactory.decorateSupplierWithTimerMetricLogP99(JMAP_PREFIX + METHOD_NAME.getName(),
-            () -> process(methodCallId, mailboxSession, setVacationRequest)
+        return Flux.from(metricFactory.decoratePublisherWithTimerMetric(JMAP_PREFIX + METHOD_NAME.getName(),
+            process(methodCallId, mailboxSession, setVacationRequest)
                 .subscriberContext(jmapAction("SET_VACATION"))
-                .subscriberContext(context("set-vacation", MDCBuilder.of("update", setVacationRequest.getUpdate()))));
+                .subscriberContext(context("set-vacation", MDCBuilder.of("update", setVacationRequest.getUpdate())))));
     }
 
     private Flux<JmapResponse> process(MethodCallId methodCallId, MailboxSession mailboxSession, SetVacationRequest setVacationRequest) {

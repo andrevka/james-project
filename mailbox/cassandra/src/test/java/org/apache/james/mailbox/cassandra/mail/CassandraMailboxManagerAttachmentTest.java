@@ -22,7 +22,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.io.InputStream;
+
 import org.apache.james.backends.cassandra.CassandraClusterExtension;
+import org.apache.james.events.EventBusTestFixture;
+import org.apache.james.events.InVMEventBus;
+import org.apache.james.events.MemoryEventDeadLetters;
+import org.apache.james.events.delivery.InVmEventDelivery;
 import org.apache.james.mailbox.AttachmentContentLoader;
 import org.apache.james.mailbox.Authenticator;
 import org.apache.james.mailbox.Authorizator;
@@ -33,10 +39,6 @@ import org.apache.james.mailbox.cassandra.CassandraMailboxManager;
 import org.apache.james.mailbox.cassandra.CassandraMailboxSessionMapperFactory;
 import org.apache.james.mailbox.cassandra.TestCassandraMailboxSessionMapperFactory;
 import org.apache.james.mailbox.cassandra.ids.CassandraMessageId;
-import org.apache.james.mailbox.events.EventBusTestFixture;
-import org.apache.james.mailbox.events.InVMEventBus;
-import org.apache.james.mailbox.events.MemoryEventDeadLetters;
-import org.apache.james.mailbox.events.delivery.InVmEventDelivery;
 import org.apache.james.mailbox.store.AbstractMailboxManagerAttachmentTest;
 import org.apache.james.mailbox.store.MailboxManagerConfiguration;
 import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
@@ -90,7 +92,7 @@ class CassandraMailboxManagerAttachmentTest extends AbstractMailboxManagerAttach
             messageIdFactory, eventBus, annotationManager, storeRightManager, quotaComponents,
             index, MailboxManagerConfiguration.DEFAULT, PreDeletionHooks.NO_PRE_DELETION_HOOK);
         MessageParser failingMessageParser = mock(MessageParser.class);
-        when(failingMessageParser.retrieveAttachments(any()))
+        when(failingMessageParser.retrieveAttachments(any(InputStream.class)))
             .thenThrow(new RuntimeException("Message parser set to fail"));
         parseFailingMailboxManager = new CassandraMailboxManager(mailboxSessionMapperFactory, sessionProvider,
             new NoMailboxPathLocker(), failingMessageParser, messageIdFactory,

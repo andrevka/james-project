@@ -23,11 +23,11 @@ import static io.restassured.RestAssured.given;
 import static io.restassured.RestAssured.when;
 import static io.restassured.RestAssured.with;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -40,31 +40,31 @@ import java.util.Date;
 import java.util.List;
 
 import javax.mail.Flags;
-import javax.mail.util.SharedByteArrayInputStream;
 
-import org.apache.james.backends.es.DockerElasticSearchExtension;
-import org.apache.james.backends.es.ElasticSearchIndexer;
-import org.apache.james.backends.es.ReactorElasticSearchClient;
+import org.apache.james.backends.es.v7.DockerElasticSearchExtension;
+import org.apache.james.backends.es.v7.ElasticSearchIndexer;
+import org.apache.james.backends.es.v7.ReactorElasticSearchClient;
 import org.apache.james.core.Username;
 import org.apache.james.json.DTOConverter;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageIdManager;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.MessageUid;
-import org.apache.james.mailbox.elasticsearch.IndexAttachments;
-import org.apache.james.mailbox.elasticsearch.MailboxElasticSearchConstants;
-import org.apache.james.mailbox.elasticsearch.MailboxIdRoutingKeyFactory;
-import org.apache.james.mailbox.elasticsearch.MailboxIndexCreationUtil;
-import org.apache.james.mailbox.elasticsearch.events.ElasticSearchListeningMessageSearchIndex;
-import org.apache.james.mailbox.elasticsearch.json.MessageToElasticSearchJson;
-import org.apache.james.mailbox.elasticsearch.query.CriterionConverter;
-import org.apache.james.mailbox.elasticsearch.query.QueryConverter;
-import org.apache.james.mailbox.elasticsearch.search.ElasticSearchSearcher;
+import org.apache.james.mailbox.elasticsearch.v7.IndexAttachments;
+import org.apache.james.mailbox.elasticsearch.v7.MailboxElasticSearchConstants;
+import org.apache.james.mailbox.elasticsearch.v7.MailboxIdRoutingKeyFactory;
+import org.apache.james.mailbox.elasticsearch.v7.MailboxIndexCreationUtil;
+import org.apache.james.mailbox.elasticsearch.v7.events.ElasticSearchListeningMessageSearchIndex;
+import org.apache.james.mailbox.elasticsearch.v7.json.MessageToElasticSearchJson;
+import org.apache.james.mailbox.elasticsearch.v7.query.CriterionConverter;
+import org.apache.james.mailbox.elasticsearch.v7.query.QueryConverter;
+import org.apache.james.mailbox.elasticsearch.v7.search.ElasticSearchSearcher;
 import org.apache.james.mailbox.indexer.ReIndexer;
 import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxManager;
 import org.apache.james.mailbox.inmemory.InMemoryMessageId;
 import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
+import org.apache.james.mailbox.model.ByteContent;
 import org.apache.james.mailbox.model.ComposedMessageId;
 import org.apache.james.mailbox.model.FetchGroup;
 import org.apache.james.mailbox.model.Mailbox;
@@ -94,7 +94,6 @@ import org.apache.mailbox.tools.indexer.SingleMailboxReindexingTask;
 import org.apache.mailbox.tools.indexer.SingleMessageReindexingTask;
 import org.apache.mailbox.tools.indexer.SingleMessageReindexingTaskAdditionalInformationDTO;
 import org.eclipse.jetty.http.HttpStatus;
-import org.elasticsearch.index.IndexNotFoundException;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -104,6 +103,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.ArgumentCaptor;
 
+import com.github.steveash.guavate.Guavate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -144,8 +144,7 @@ class MailboxesRoutesTest {
             .listeningSearchIndex(preInstanciationStage -> new ElasticSearchListeningMessageSearchIndex(
                 preInstanciationStage.getMapperFactory(),
                 new ElasticSearchIndexer(client,
-                    MailboxElasticSearchConstants.DEFAULT_MAILBOX_WRITE_ALIAS,
-                    BATCH_SIZE),
+                    MailboxElasticSearchConstants.DEFAULT_MAILBOX_WRITE_ALIAS),
                 new ElasticSearchSearcher(client, new QueryConverter(new CriterionConverter()), SEARCH_SIZE,
                     new InMemoryId.Factory(), messageIdFactory,
                     MailboxElasticSearchConstants.DEFAULT_MAILBOX_READ_ALIAS, routingKeyFactory),
@@ -432,6 +431,60 @@ class MailboxesRoutesTest {
             }
 
             @Test
+            void fullReprocessingShouldAcceptRebuildAllNoCleanupMode() throws Exception {
+                MailboxSession systemSession = mailboxManager.createSystemSession(USERNAME);
+                MailboxId mailboxId = mailboxManager.createMailbox(INBOX, systemSession).get();
+                Mailbox mailbox = mailboxManager.getMailbox(mailboxId, systemSession).getMailboxEntity();
+
+                ComposedMessageId result = mailboxManager.getMailbox(INBOX, systemSession)
+                    .appendMessage(
+                        MessageManager.AppendCommand.builder().build("header: value\r\n\r\nbody"),
+                        systemSession)
+                    .getId();
+                mailboxManager.getMailbox(INBOX, systemSession)
+                    .appendMessage(
+                        MessageManager.AppendCommand.builder().build("header: value\r\n\r\nbody"),
+                        systemSession);
+
+                List<MessageResult> messages = messageIdManager.getMessages(ImmutableList.of(result.getMessageId()), FetchGroup.MINIMAL, systemSession);
+
+                Flags newFlags = new Flags(Flags.Flag.DRAFT);
+                UpdatedFlags updatedFlags = UpdatedFlags.builder()
+                    .uid(result.getUid())
+                    .modSeq(messages.get(0).getModSeq())
+                    .oldFlags(new Flags())
+                    .newFlags(newFlags)
+                    .build();
+
+                // We update on the searchIndex level to try to create inconsistencies
+                searchIndex.update(systemSession, mailbox.getMailboxId(), ImmutableList.of(updatedFlags)).block();
+
+                String taskId = with()
+                    .post("/mailboxes?task=reIndex&mode=rebuildAllNoCleanup")
+                    .jsonPath()
+                    .get("taskId");
+
+                given()
+                    .basePath(TasksRoutes.BASE)
+                .when()
+                    .get(taskId + "/await")
+                .then()
+                    .body("status", is("completed"))
+                    .body("taskId", is(notNullValue()))
+                    .body("type", is(FullReindexingTask.FULL_RE_INDEXING.asString()))
+                    .body("additionalInformation.successfullyReprocessedMailCount", is(2))
+                    .body("additionalInformation.failedReprocessedMailCount", is(0))
+                    .body("additionalInformation.runningOptions.messagesPerSecond", is(50))
+                    .body("additionalInformation.runningOptions.mode", is("REBUILD_ALL_NO_CLEANUP"))
+                    .body("startedDate", is(notNullValue()))
+                    .body("submitDate", is(notNullValue()))
+                    .body("completedDate", is(notNullValue()));
+
+                // verify that deleteAll on index never got called with rebuildAllNoCleanup mode
+                verify(searchIndex, never()).deleteAll(any(MailboxSession.class), any(MailboxId.class));
+            }
+
+            @Test
             void fullReprocessingWithCorrectModeShouldFixInconsistenciesInES() throws Exception {
                 MailboxSession systemSession = mailboxManager.createSystemSession(USERNAME);
                 MailboxId mailboxId = mailboxManager.createMailbox(INBOX, systemSession).get();
@@ -460,6 +513,71 @@ class MailboxesRoutesTest {
 
                 String taskId = with()
                     .post("/mailboxes?task=reIndex&mode=fixOutdated")
+                    .jsonPath()
+                    .get("taskId");
+
+                given()
+                    .basePath(TasksRoutes.BASE)
+                .when()
+                    .get(taskId + "/await");
+
+                assertThat(searchIndex.retrieveIndexedFlags(mailbox, result.getUid()).block())
+                    .isEqualTo(initialFlags);
+            }
+
+            @Test
+            void fullReprocessingNoCleanupShouldNoopWhenNoInconsistencies() throws Exception {
+                MailboxSession systemSession = mailboxManager.createSystemSession(USERNAME);
+                MailboxId mailboxId = mailboxManager.createMailbox(INBOX, systemSession).get();
+                Mailbox mailbox = mailboxManager.getMailbox(mailboxId, systemSession).getMailboxEntity();
+
+                ComposedMessageId result = mailboxManager.getMailbox(INBOX, systemSession)
+                    .appendMessage(
+                        MessageManager.AppendCommand.builder().build("header: value\r\n\r\nbody"),
+                        systemSession)
+                    .getId();
+
+                Flags initialFlags = searchIndex.retrieveIndexedFlags(mailbox, result.getUid()).block();
+
+                String taskId = with()
+                    .post("/mailboxes?task=reIndex&mode=rebuildAllNoCleanup")
+                    .jsonPath()
+                    .get("taskId");
+
+                given()
+                    .basePath(TasksRoutes.BASE)
+                .when()
+                    .get(taskId + "/await");
+
+                assertThat(searchIndex.retrieveIndexedFlags(mailbox, result.getUid()).block())
+                    .isEqualTo(initialFlags);
+            }
+
+            @Test
+            void fullReprocessingNoCleanupShouldSolveInconsistencies() throws Exception {
+                MailboxSession systemSession = mailboxManager.createSystemSession(USERNAME);
+                MailboxId mailboxId = mailboxManager.createMailbox(INBOX, systemSession).get();
+                Mailbox mailbox = mailboxManager.getMailbox(mailboxId, systemSession).getMailboxEntity();
+
+                ComposedMessageId result = mailboxManager.getMailbox(INBOX, systemSession)
+                    .appendMessage(
+                        MessageManager.AppendCommand.builder().build("header: value\r\n\r\nbody"),
+                        systemSession)
+                    .getId();
+
+                Flags initialFlags = searchIndex.retrieveIndexedFlags(mailbox, result.getUid()).block();
+
+                List<MessageResult> messages = messageIdManager.getMessages(ImmutableList.of(result.getMessageId()), FetchGroup.MINIMAL, systemSession);
+
+                // We update on the searchIndex level to try to create inconsistencies
+                searchIndex.delete(systemSession, mailbox.getMailboxId(),
+                    messages.stream()
+                        .map(MessageResult::getUid)
+                        .collect(Guavate.toImmutableList()))
+                    .block();
+
+                String taskId = with()
+                    .post("/mailboxes?task=reIndex&mode=rebuildAllNoCleanup")
                     .jsonPath()
                     .get("taskId");
 
@@ -514,12 +632,12 @@ class MailboxesRoutesTest {
                 SimpleMailboxMessage message = SimpleMailboxMessage.builder()
                     .messageId(InMemoryMessageId.of(42L))
                     .uid(uid)
-                    .content(new SharedByteArrayInputStream(content))
+                    .content(new ByteContent(content))
                     .size(content.length)
                     .internalDate(new Date(ZonedDateTime.parse("2018-02-15T15:54:02Z").toEpochSecond()))
                     .bodyStartOctet(0)
                     .flags(new Flags("myFlags"))
-                    .propertyBuilder(new PropertyBuilder())
+                    .properties(new PropertyBuilder())
                     .mailboxId(mailboxId)
                     .build();
 
@@ -535,8 +653,8 @@ class MailboxesRoutesTest {
                 .when()
                     .get(taskId + "/await");
 
-                assertThatThrownBy(() -> searchIndex.retrieveIndexedFlags(mailbox, uid).block())
-                    .isInstanceOf(IndexNotFoundException.class);
+                assertThat(searchIndex.retrieveIndexedFlags(mailbox, uid).blockOptional())
+                    .isEmpty();
             }
         }
 
@@ -933,12 +1051,12 @@ class MailboxesRoutesTest {
                 SimpleMailboxMessage message = SimpleMailboxMessage.builder()
                     .messageId(InMemoryMessageId.of(42L))
                     .uid(uid)
-                    .content(new SharedByteArrayInputStream(content))
+                    .content(new ByteContent(content))
                     .size(content.length)
                     .internalDate(new Date(ZonedDateTime.parse("2018-02-15T15:54:02Z").toEpochSecond()))
                     .bodyStartOctet(0)
                     .flags(new Flags("myFlags"))
-                    .propertyBuilder(new PropertyBuilder())
+                    .properties(new PropertyBuilder())
                     .mailboxId(mailboxId)
                     .build();
 
@@ -956,8 +1074,8 @@ class MailboxesRoutesTest {
                 .when()
                     .get(taskId + "/await");
 
-                assertThatThrownBy(() -> searchIndex.retrieveIndexedFlags(mailbox, uid).block())
-                    .isInstanceOf(IndexNotFoundException.class);
+                assertThat(searchIndex.retrieveIndexedFlags(mailbox, uid).blockOptional())
+                    .isEmpty();
             }
         }
 

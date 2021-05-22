@@ -19,6 +19,8 @@
 
 package org.apache.james.mailbox.cassandra.mail.task;
 
+import static org.apache.james.backends.cassandra.init.configuration.CassandraConsistenciesConfiguration.ConsistencyChoice.STRONG;
+
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -122,7 +124,7 @@ public class RecomputeMailboxCountersService {
         }
     }
 
-    static class Context {
+    public static class Context {
         static class Snapshot {
             private final long processedMailboxCount;
             private final ImmutableList<CassandraId> failedMailboxes;
@@ -168,7 +170,7 @@ public class RecomputeMailboxCountersService {
         private final AtomicLong processedMailboxCount;
         private final ConcurrentLinkedDeque<CassandraId> failedMailboxes;
 
-        Context() {
+        public Context() {
             processedMailboxCount = new AtomicLong();
             failedMailboxes = new ConcurrentLinkedDeque<>();
         }
@@ -213,7 +215,7 @@ public class RecomputeMailboxCountersService {
             });
     }
 
-    private Mono<Result> recomputeMailboxCounter(Context context, Mailbox mailbox, Options options) {
+    public Mono<Result> recomputeMailboxCounter(Context context, Mailbox mailbox, Options options) {
         CassandraId mailboxId = (CassandraId) mailbox.getMailboxId();
         Counter counter = new Counter(mailboxId);
 
@@ -241,7 +243,7 @@ public class RecomputeMailboxCountersService {
         }
         CassandraMessageId messageId = (CassandraMessageId) message.getComposedMessageId().getMessageId();
 
-        return messageIdToImapUidDAO.retrieve(messageId, Optional.of(mailboxId))
+        return messageIdToImapUidDAO.retrieve(messageId, Optional.of(mailboxId), STRONG)
             .doOnNext(trustedMessage -> {
                 if (!trustedMessage.equals(message)) {
                     LOGGER.warn("Possible denormalization issue on {}. " +

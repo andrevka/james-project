@@ -19,8 +19,9 @@
 
 package org.apache.james.imap.encode.base;
 
+import static java.nio.charset.StandardCharsets.US_ASCII;
+
 import java.io.IOException;
-import java.nio.charset.Charset;
 
 import javax.mail.Flags;
 
@@ -32,7 +33,7 @@ import org.apache.james.imap.api.message.IdRange;
 import org.apache.james.imap.api.message.UidRange;
 import org.apache.james.imap.encode.ImapResponseComposer;
 import org.apache.james.imap.encode.ImapResponseWriter;
-import org.apache.james.imap.message.response.Literal;
+import org.apache.james.imap.message.Literal;
 import org.apache.james.imap.utils.FastByteArrayOutputStream;
 
 /**
@@ -52,13 +53,10 @@ public class ImapResponseComposerImpl implements ImapConstants, ImapResponseComp
 
     private final FastByteArrayOutputStream buffer;
 
-    private final Charset usAscii;
-
     private boolean skipNextSpace;
 
     public ImapResponseComposerImpl(ImapResponseWriter writer, int bufferSize) {
         skipNextSpace = false;
-        usAscii = Charset.forName("US-ASCII");
         this.writer = writer;
         this.buffer = new FastByteArrayOutputStream(bufferSize);
     }
@@ -197,7 +195,7 @@ public class ImapResponseComposerImpl implements ImapConstants, ImapResponseComp
 
 
     private void writeASCII(String string) throws IOException {
-        buffer.write(string.getBytes(usAscii));
+        buffer.write(string.getBytes(US_ASCII));
     }
 
     @Override

@@ -19,13 +19,17 @@
 
 package org.apache.james.mailbox.store.search;
 
+import java.util.List;
+
 import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.SearchQuery;
 import org.junit.jupiter.api.Disabled;
 
 class SimpleMessageSearchIndexTest extends AbstractMessageSearchIndexTest {
 
     @Override
-    protected void await() {
+    protected void awaitMessageCount(List<MailboxId> mailboxIds, SearchQuery query, long messageCount) {
     }
 
     @Override
@@ -127,11 +131,6 @@ class SimpleMessageSearchIndexTest extends AbstractMessageSearchIndexTest {
 
     @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")
     @Override
-    public void sortOnDisplayToShouldWork() {
-    }
-
-    @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")
-    @Override
     public void flagIsUnSetShouldReturnUidOfMessageNotMarkedAsRecentWhenUsedWithFlagRecent() {
     }
 
@@ -153,11 +152,6 @@ class SimpleMessageSearchIndexTest extends AbstractMessageSearchIndexTest {
     @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")
     @Override
     public void sortOnToShouldWork() {
-    }
-
-    @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")
-    @Override
-    public void sortOnDisplayFromShouldWork() {
     }
 
     @Disabled("JAMES-1799: ignoring failing test after generalizing ElasticSearch test suite to other mailbox search backends")

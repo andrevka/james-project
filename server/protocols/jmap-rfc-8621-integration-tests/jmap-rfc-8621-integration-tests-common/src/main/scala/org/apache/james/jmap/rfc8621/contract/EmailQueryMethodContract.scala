@@ -37,8 +37,9 @@ import net.javacrumbs.jsonunit.core.Option.IGNORING_ARRAY_ORDER
 import net.javacrumbs.jsonunit.core.internal.Options
 import org.apache.http.HttpStatus.SC_OK
 import org.apache.james.GuiceJamesServer
+import org.apache.james.jmap.core.ResponseObject.SESSION_STATE
+import org.apache.james.jmap.core.UTCDate
 import org.apache.james.jmap.http.UserCredential
-import org.apache.james.jmap.model.UTCDate
 import org.apache.james.jmap.rfc8621.contract.Fixture.{ACCEPT_RFC8621_VERSION_HEADER, ANDRE, ANDRE_PASSWORD, BOB, BOB_PASSWORD, DOMAIN, authScheme, baseRequestSpecBuilder}
 import org.apache.james.mailbox.FlagsBuilder
 import org.apache.james.mailbox.MessageManager.AppendCommand
@@ -50,9 +51,10 @@ import org.apache.james.mime4j.field.address.DefaultAddressParser
 import org.apache.james.mime4j.message.{DefaultMessageWriter, MultipartBuilder}
 import org.apache.james.mime4j.stream.RawField
 import org.apache.james.modules.{ACLProbeImpl, MailboxProbeImpl}
+import org.apache.james.util.ClassLoaderUtils
 import org.apache.james.utils.DataProbeImpl
 import org.awaitility.Awaitility
-import org.awaitility.Duration.ONE_HUNDRED_MILLISECONDS
+import org.awaitility.Durations.ONE_HUNDRED_MILLISECONDS
 import org.junit.jupiter.api.{BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.{Arguments, MethodSource, ValueSource}
@@ -123,7 +125,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "error",
            |            {
@@ -155,7 +157,7 @@ trait EmailQueryMethodContract {
 
     val messageId2: MessageId = mailboxProbe
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.from(
-        ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =
@@ -187,7 +189,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -249,15 +251,16 @@ trait EmailQueryMethodContract {
       .getMailboxId("#private", BOB.asString(), "myMailbox")
       .serialize
 
-    assertThatJson(response).isEqualTo(
+    assertThatJson(response)
+      .whenIgnoringPaths("methodResponses[0][1].newState", "methodResponses[0][1].oldState")
+      .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/set",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "newState": "000001",
          |                "created": {
          |                    "C42": {
          |                        "id": "${mailboxId}",
@@ -346,15 +349,16 @@ trait EmailQueryMethodContract {
       .getMailboxId("#private", BOB.asString(), "myMailbox")
       .serialize
 
-    assertThatJson(response).isEqualTo(
+    assertThatJson(response)
+      .whenIgnoringPaths("methodResponses[0][1].newState", "methodResponses[0][1].oldState")
+      .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/set",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "newState": "000001",
          |                "created": {
          |                    "C42": {
          |                        "id": "${mailboxId}",
@@ -443,7 +447,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -506,7 +510,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -568,7 +572,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [
            |        [
            |            "Email/query",
@@ -635,7 +639,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -697,7 +701,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -770,7 +774,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -795,7 +799,7 @@ trait EmailQueryMethodContract {
     val messageId1: MessageId = sendMessageToBobInbox(server, message, requestDate)
     val messageId2: MessageId = server.getProbe(classOf[MailboxProbeImpl])
       .appendMessage(BOB.asString, mailboxPath, AppendCommand.from(
-        ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =
@@ -842,7 +846,7 @@ trait EmailQueryMethodContract {
     sendMessageToBobInbox(server, message, requestDate)
     val messageId2: MessageId = server.getProbe(classOf[MailboxProbeImpl])
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.from(
-        ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =
@@ -889,7 +893,7 @@ trait EmailQueryMethodContract {
     sendMessageToBobInbox(server, message, requestDate)
     val messageId2: MessageId = server.getProbe(classOf[MailboxProbeImpl])
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.from(
-        ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =
@@ -982,7 +986,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -1053,7 +1057,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -1134,7 +1138,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -1215,7 +1219,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -1295,7 +1299,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response)
         .isEqualTo(s"""{
-                      |    "sessionState": "75128aab4b1b",
+                      |    "sessionState": "${SESSION_STATE.value}",
                       |    "methodResponses": [
                       |        [
                       |            "error",
@@ -1321,7 +1325,7 @@ trait EmailQueryMethodContract {
 
     val messageId2: MessageId = mailboxProbe
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.from(
-        ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =
@@ -1353,7 +1357,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -1387,7 +1391,7 @@ trait EmailQueryMethodContract {
     val messageId2: MessageId = mailboxProbe
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.builder()
           .withInternalDate(beforeRequestDate)
-        .build(ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        .build(ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val messageId3: MessageId = mailboxProbe
@@ -1400,7 +1404,7 @@ trait EmailQueryMethodContract {
     val messageId4: MessageId = mailboxProbe
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.builder()
         .withInternalDate(afterRequestDate)
-        .build(ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        .build(ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =
@@ -1435,7 +1439,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -1540,7 +1544,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -1601,7 +1605,79 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
+         |        "property":"sentAt",
+         |        "isAscending": false
+         |      }]
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    awaitAtMostTenSeconds.untilAsserted { () =>
+      val response = `given`
+        .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+        .body(request)
+      .when
+        .post
+      .`then`
+        .statusCode(SC_OK)
+        .contentType(JSON)
+        .extract
+        .body
+        .asString
+
+    assertThatJson(response)
+      .inPath("$.methodResponses[0][1].ids")
+      .isEqualTo(s"""["${messageId1.serialize}", "${messageId2.serialize}", "${messageId3.serialize}"]""")
+    }
+  }
+
+  @Test
+  def listMailsShouldBeSortedByDescendingOrderOfSentAtAndInMailbox(server: GuiceJamesServer): Unit = {
+    val mailboxId = server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
+    val message: Message = Message.Builder
+      .of
+      .setSubject("test")
+      .setBody("testmail", StandardCharsets.UTF_8)
+      .build
+
+    val requestDateMessage1 = Date.from(ZonedDateTime.now().minusDays(1).toInstant)
+    val messageId1: MessageId = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder()
+          .withInternalDate(requestDateMessage1)
+          .build(message))
+      .getMessageId
+
+    val requestDateMessage2 = Date.from(ZonedDateTime.now().minusDays(2).toInstant)
+    val messageId2 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder()
+          .withInternalDate(requestDateMessage2)
+          .build(message))
+      .getMessageId
+
+    val requestDateMessage3 = Date.from(ZonedDateTime.now().minusDays(3).toInstant)
+    val messageId3 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder()
+          .withInternalDate(requestDateMessage3)
+          .build(message))
+      .getMessageId
+
+    val request =
+      s"""{
+         |  "using": [
+         |    "urn:ietf:params:jmap:core",
+         |    "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "filter": {
+         |        "inMailbox": "${mailboxId.serialize}"
+         |      },
+         |      "sort": [{
          |        "property":"sentAt",
          |        "isAscending": false
          |      }]
@@ -1679,7 +1755,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"sentAt",
          |        "isAscending": true
          |      }]
@@ -1757,7 +1833,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"sentAt"
          |      }]
          |    },
@@ -1780,6 +1856,280 @@ trait EmailQueryMethodContract {
     assertThatJson(response)
       .inPath("$.methodResponses[0][1].ids")
       .isEqualTo(s"""["${messageId1.serialize}", "${messageId2.serialize}", "${messageId3.serialize}"]""")
+    }
+  }
+
+  @Test
+  def listMailsShouldBeSortedWhenUsingSize(server: GuiceJamesServer): Unit = {
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
+    val otherMailboxPath = MailboxPath.forUser(BOB, "other")
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(otherMailboxPath)
+
+    val message1: Message = Message.Builder
+      .of
+      .setSubject("test")
+      .setBody("short", StandardCharsets.UTF_8)
+      .build
+    val messageId1: MessageId = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message1))
+      .getMessageId
+
+    val message2: Message = Message.Builder
+      .of
+      .setSubject("test")
+      .setBody("definitly looooooooooooooooooooooooooooooooooooong", StandardCharsets.UTF_8)
+      .build
+    val messageId2 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message2))
+      .getMessageId
+
+    val message3: Message = Message.Builder
+      .of
+      .setSubject("test")
+      .setBody("not that short", StandardCharsets.UTF_8)
+      .build
+    val messageId3 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message3))
+      .getMessageId
+
+    val request =
+      s"""{
+         |  "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "sort": [{"property":"size"}]
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    awaitAtMostTenSeconds.untilAsserted { () =>
+      val response = `given`
+        .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+        .body(request)
+      .when
+        .post
+      .`then`
+        .statusCode(SC_OK)
+        .contentType(JSON)
+        .extract
+        .body
+        .asString
+
+    assertThatJson(response)
+      .inPath("$.methodResponses[0][1].ids")
+      .isEqualTo(s"""["${messageId1.serialize}", "${messageId3.serialize}", "${messageId2.serialize}"]""")
+    }
+  }
+
+  @Test
+  def listMailsShouldBeSortedWhenUsingSubject(server: GuiceJamesServer): Unit = {
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
+    val otherMailboxPath = MailboxPath.forUser(BOB, "other")
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(otherMailboxPath)
+
+    val message1: Message = Message.Builder
+      .of
+      .setSubject("aba")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId1: MessageId = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message1))
+      .getMessageId
+
+    val message2: Message = Message.Builder
+      .of
+      .setSubject("aaa")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId2 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message2))
+      .getMessageId
+
+    val message3: Message = Message.Builder
+      .of
+      .setSubject("ccc")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId3 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message3))
+      .getMessageId
+
+    val request =
+      s"""{
+         |  "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "sort": [{"property":"subject"}]
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    awaitAtMostTenSeconds.untilAsserted { () =>
+      val response = `given`
+        .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+        .body(request)
+      .when
+        .post
+      .`then`
+        .statusCode(SC_OK)
+        .contentType(JSON)
+        .extract
+        .body
+        .asString
+
+    assertThatJson(response)
+      .inPath("$.methodResponses[0][1].ids")
+      .isEqualTo(s"""["${messageId2.serialize}", "${messageId1.serialize}", "${messageId3.serialize}"]""")
+    }
+  }
+
+  @Test
+  def listMailsShouldBeSortedWhenUsingTo(server: GuiceJamesServer): Unit = {
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
+    val otherMailboxPath = MailboxPath.forUser(BOB, "other")
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(otherMailboxPath)
+
+    val message1: Message = Message.Builder
+      .of
+      .setTo("aaa@domain.tld")
+      .setSubject("subject")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId1: MessageId = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message1))
+      .getMessageId
+
+    val message2: Message = Message.Builder
+      .of
+      .setTo("ccc@domain.tld")
+      .setSubject("subject")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId2 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message2))
+      .getMessageId
+
+    val message3: Message = Message.Builder
+      .of
+      .setTo("aba@domain.tld")
+      .setSubject("subject")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId3 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message3))
+      .getMessageId
+
+    val request =
+      s"""{
+         |  "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "sort": [{"property":"to"}]
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    awaitAtMostTenSeconds.untilAsserted { () =>
+      val response = `given`
+        .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+        .body(request)
+      .when
+        .post
+      .`then`
+        .statusCode(SC_OK)
+        .contentType(JSON)
+        .extract
+        .body
+        .asString
+
+    assertThatJson(response)
+      .inPath("$.methodResponses[0][1].ids")
+      .isEqualTo(s"""["${messageId1.serialize}", "${messageId3.serialize}", "${messageId2.serialize}"]""")
+    }
+  }
+
+  @Test
+  def listMailsShouldBeSortedWhenUsingFrom(server: GuiceJamesServer): Unit = {
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
+    val otherMailboxPath = MailboxPath.forUser(BOB, "other")
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(otherMailboxPath)
+
+    val message1: Message = Message.Builder
+      .of
+      .setFrom("aaa@domain.tld")
+      .setSubject("subject")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId1: MessageId = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message1))
+      .getMessageId
+
+    val message2: Message = Message.Builder
+      .of
+      .setFrom("ccc@domain.tld")
+      .setSubject("subject")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId2 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message2))
+      .getMessageId
+
+    val message3: Message = Message.Builder
+      .of
+      .setFrom("aba@domain.tld")
+      .setSubject("subject")
+      .setBody("any body", StandardCharsets.UTF_8)
+      .build
+    val messageId3 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB),
+        AppendCommand.builder().build(message3))
+      .getMessageId
+
+    val request =
+      s"""{
+         |  "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "sort": [{"property":"from"}]
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    awaitAtMostTenSeconds.untilAsserted { () =>
+      val response = `given`
+        .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+        .body(request)
+      .when
+        .post
+      .`then`
+        .statusCode(SC_OK)
+        .contentType(JSON)
+        .extract
+        .body
+        .asString
+
+    assertThatJson(response)
+      .inPath("$.methodResponses[0][1].ids")
+      .isEqualTo(s"""["${messageId1.serialize}", "${messageId3.serialize}", "${messageId2.serialize}"]""")
     }
   }
 
@@ -1821,7 +2171,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"sentAt"
          |      }]
          |    },
@@ -1930,7 +2280,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt"
          |      }]
          |    },
@@ -1984,7 +2334,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": true
          |      }]
@@ -2039,7 +2389,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": false
          |      }]
@@ -2083,7 +2433,7 @@ trait EmailQueryMethodContract {
          |      "filter": {
          |        "inMailbox": "${otherMailboxId.serialize}"
          |        },
-         |      "comparator": [{
+         |      "sort": [{
          |        "isAscending":true
          |      }]
          |    },
@@ -2108,7 +2458,7 @@ trait EmailQueryMethodContract {
         .isEqualTo("""
          {
             "type": "invalidArguments",
-            "description": "{\"errors\":[{\"path\":\"obj.comparator[0].property\",\"messages\":[\"error.path.missing\"]}]}"
+            "description": "{\"errors\":[{\"path\":\"obj.sort[0].property\",\"messages\":[\"error.path.missing\"]}]}"
           }
          """)
     }
@@ -2179,7 +2529,7 @@ trait EmailQueryMethodContract {
          |      "filter": {
          |        "inMailbox": "${otherMailboxId.serialize}"
          |        },
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"unsupported",
          |        "isAscending":true
          |      }]
@@ -2205,7 +2555,7 @@ trait EmailQueryMethodContract {
         .isEqualTo("""
          {
             "type": "invalidArguments",
-            "description": "{\"errors\":[{\"path\":\"obj.comparator[0].property\",\"messages\":[\"'unsupported' is not a supported sort property\"]}]}"
+            "description": "{\"errors\":[{\"path\":\"obj.sort[0].property\",\"messages\":[\"'unsupported' is not a supported sort property\"]}]}"
           }
          """)
     }
@@ -2215,10 +2565,6 @@ trait EmailQueryMethodContract {
   @ValueSource(strings = Array(
     "allInThreadHaveKeyword",
     "someInThreadHaveKeyword",
-    "size",
-    "from",
-    "to",
-    "subject",
     "hasKeyword"
   ))
   def listMailsShouldReturnUnsupportedSortWhenPropertyFieldInComparatorIsValidButUnsupported(unsupported: String): Unit = {
@@ -2231,7 +2577,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"$unsupported"
          |      }]
          |    },
@@ -2484,7 +2830,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [
            |        [
            |            "error",
@@ -2646,7 +2992,7 @@ trait EmailQueryMethodContract {
       assertThatJson(response)
         .isEqualTo(
           s"""{
-             |    "sessionState": "75128aab4b1b",
+             |    "sessionState": "${SESSION_STATE.value}",
              |    "methodResponses": [
              |        [
              |            "error",
@@ -2695,7 +3041,7 @@ trait EmailQueryMethodContract {
       assertThatJson(response)
         .isEqualTo(
           s"""{
-             |    "sessionState": "75128aab4b1b",
+             |    "sessionState": "${SESSION_STATE.value}",
              |    "methodResponses": [
              |        [
              |            "error",
@@ -2967,6 +3313,7 @@ trait EmailQueryMethodContract {
         .isEqualTo(s"""["${messageId1.serialize}"]""")
     }
   }
+
   @Test
   def shouldListMailsReceivedBeforeADateInclusively(server: GuiceJamesServer): Unit = {
     val message: Message = buildTestMessage
@@ -3135,7 +3482,7 @@ trait EmailQueryMethodContract {
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
          |      "limit": 1,
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": false
          |      }]
@@ -3158,7 +3505,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -3224,7 +3571,7 @@ trait EmailQueryMethodContract {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
          |      "limit": 2,
          |      "position": 2,
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": false
          |      }]
@@ -3247,7 +3594,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -3313,7 +3660,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -3360,7 +3707,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [
            |        [
            |            "error",
@@ -3398,7 +3745,7 @@ trait EmailQueryMethodContract {
          |    "Email/query",
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": false
          |      }]
@@ -3453,7 +3800,7 @@ trait EmailQueryMethodContract {
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
          |      "limit": 2000,
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": false
          |      }]
@@ -3509,7 +3856,7 @@ trait EmailQueryMethodContract {
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
          |      "position": 1,
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": false
          |      }]
@@ -3532,7 +3879,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -3574,7 +3921,7 @@ trait EmailQueryMethodContract {
          |    {
          |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
          |      "position": 0,
-         |      "comparator": [{
+         |      "sort": [{
          |        "property":"receivedAt",
          |        "isAscending": false
          |      }]
@@ -3597,7 +3944,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -3656,7 +4003,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [[
            |            "Email/query",
            |            {
@@ -3716,7 +4063,7 @@ trait EmailQueryMethodContract {
 
       assertThatJson(response).isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [
            |        [
            |            "error",
@@ -3810,8 +4157,8 @@ trait EmailQueryMethodContract {
 
     assertThatJson(response)
       .whenIgnoringPaths("methodResponses[0][1].description")
-      .isEqualTo("""{
-                    |    "sessionState": "75128aab4b1b",
+      .isEqualTo(s"""{
+                    |    "sessionState": "${SESSION_STATE.value}",
                     |    "methodResponses": [
                     |        [
                     |            "error",
@@ -3854,11 +4201,10 @@ trait EmailQueryMethodContract {
       .body
       .asString
 
-
     assertThatJson(response)
       .whenIgnoringPaths("methodResponses[0][1].description")
-      .isEqualTo("""{
-                   |    "sessionState": "75128aab4b1b",
+      .isEqualTo(s"""{
+                   |    "sessionState": "${SESSION_STATE.value}",
                    |    "methodResponses": [
                    |        [
                    |            "error",
@@ -3905,7 +4251,7 @@ trait EmailQueryMethodContract {
       .whenIgnoringPaths("methodResponses[0][1].description")
       .isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [
            |        [
            |            "error",
@@ -3952,7 +4298,7 @@ trait EmailQueryMethodContract {
       .whenIgnoringPaths("methodResponses[0][1].description")
       .isEqualTo(
         s"""{
-           |    "sessionState": "75128aab4b1b",
+           |    "sessionState": "${SESSION_STATE.value}",
            |    "methodResponses": [
            |        [
            |            "error",
@@ -3998,8 +4344,8 @@ trait EmailQueryMethodContract {
 
     assertThatJson(response)
       .whenIgnoringPaths("methodResponses[0][1].description")
-      .isEqualTo("""{
-                   |    "sessionState": "75128aab4b1b",
+      .isEqualTo(s"""{
+                   |    "sessionState": "${SESSION_STATE.value}",
                    |    "methodResponses": [
                    |        [
                    |            "error",
@@ -4682,10 +5028,69 @@ trait EmailQueryMethodContract {
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.builder().build(
         messageBuilder.build))
       .getMessageId
+
+    val request =
+      s"""{
+         |  "using": [
+         |    "urn:ietf:params:jmap:core",
+         |    "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "filter" : {
+         |        "subject": "paradise"
+         |      }
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    awaitAtMostTenSeconds.untilAsserted { () =>
+      val response = `given`
+        .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+        .body(request)
+      .when
+        .post
+      .`then`
+        .statusCode(SC_OK)
+        .contentType(JSON)
+        .extract
+        .body
+        .asString
+
+      assertThatJson(response)
+        .withOptions(new Options(IGNORING_ARRAY_ORDER))
+        .inPath("$.methodResponses[0][1].ids")
+        .isEqualTo(s"""["${messageId1.serialize}"]""")
+    }
+  }
+
+  @Test
+  def subjectShouldBeCaseInsensitive(server: GuiceJamesServer): Unit = {
+    server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
+    def messageBuilder = Message.Builder
+      .of
+      .setBody("testmail", StandardCharsets.UTF_8)
+    val messageId1 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.builder().build(
+        messageBuilder
+          .setSubject("Yet another day in paradise")
+          .build))
+      .getMessageId
+    val messageId2 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.builder().build(
+        messageBuilder
+          .setSubject("Welcome to hell")
+          .build))
+      .getMessageId
+    val messageId3 = server.getProbe(classOf[MailboxProbeImpl])
+      .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.builder().build(
+        messageBuilder.build))
+      .getMessageId
     val messageId4 = server.getProbe(classOf[MailboxProbeImpl])
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.builder().build(
         messageBuilder
-          .setSubject("Yet another day in PaRaDiSeS")
+          .setSubject("Yet another day in PaRaDiSe")
           .build))
       .getMessageId
 
@@ -5140,7 +5545,7 @@ trait EmailQueryMethodContract {
     server.getProbe(classOf[MailboxProbeImpl]).createMailbox(inbox(BOB))
     server.getProbe(classOf[MailboxProbeImpl])
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.from(
-        ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =
@@ -5364,6 +5769,106 @@ trait EmailQueryMethodContract {
   }
 
   @Test
+  def emailQueryShouldRejectFilterOperatorWithExtraFields(server: GuiceJamesServer): Unit = {
+    val mailboxId = server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
+    val requestDate = ZonedDateTime.now().minusDays(1)
+
+    val request =
+      s"""{
+         |  "using": [
+         |    "urn:ietf:params:jmap:core",
+         |    "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "filter" : {
+         |        "inMailbox": "${mailboxId.serialize}",
+         |        "before": "${UTCDate(requestDate.plusHours(1)).asUTC.format(UTC_DATE_FORMAT)}",
+         |        "operator": "AND",
+         |        "conditions": [
+         |          { "hasKeyword": "custom" }, { "hasKeyword": "another_custom" }
+         |        ]
+         |      }
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    val response = `given`
+      .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+      .body(request)
+    .when
+      .post
+    .`then`
+      .statusCode(SC_OK)
+      .contentType(JSON)
+      .extract
+      .body
+      .asString
+
+    assertThatJson(response)
+      .isEqualTo(s"""{
+                    |    "sessionState": "${SESSION_STATE.value}",
+                    |    "methodResponses": [
+                    |        [
+                    |            "error",
+                    |            {
+                    |                "type": "invalidArguments",
+                    |                "description": "{\\"errors\\":[{\\"path\\":\\"obj.filter\\",\\"messages\\":[\\"Expecting filterOperator to contain only operator and conditions\\"]}]}"
+                    |            },
+                    |            "c1"
+                    |        ]
+                    |    ]
+                    |}""".stripMargin)
+  }
+
+  @Test
+  def emailQueryShouldRejectOperatorWithoutCondition(server: GuiceJamesServer): Unit = {
+    val request =
+      s"""{
+         |  "using": [
+         |    "urn:ietf:params:jmap:core",
+         |    "urn:ietf:params:jmap:mail"],
+         |  "methodCalls": [[
+         |    "Email/query",
+         |    {
+         |      "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
+         |      "filter" : {
+         |        "operator": "AND"
+         |      }
+         |    },
+         |    "c1"]]
+         |}""".stripMargin
+
+    val response = `given`
+      .header(ACCEPT.toString, ACCEPT_RFC8621_VERSION_HEADER)
+      .body(request)
+    .when
+      .post
+    .`then`
+      .statusCode(SC_OK)
+      .contentType(JSON)
+      .extract
+      .body
+      .asString
+
+    assertThatJson(response)
+      .isEqualTo(s"""{
+                    |    "sessionState": "${SESSION_STATE.value}",
+                    |    "methodResponses": [
+                    |        [
+                    |            "error",
+                    |            {
+                    |                "type": "invalidArguments",
+                    |                "description": "{\\"errors\\":[{\\"path\\":\\"obj.filter\\",\\"messages\\":[\\"Expecting filterOperator to contain only operator and conditions\\"]}]}"
+                    |            },
+                    |            "c1"
+                    |        ]
+                    |    ]
+                    |}""".stripMargin)
+  }
+
+  @Test
   def inMailboxShouldBeRejectedWhenInOperator(server: GuiceJamesServer): Unit = {
     val message: Message = buildTestMessage
     val mailboxId = server.getProbe(classOf[MailboxProbeImpl]).createMailbox(MailboxPath.inbox(BOB))
@@ -5412,7 +5917,7 @@ trait EmailQueryMethodContract {
 
     assertThatJson(response)
       .isEqualTo(s"""{
-                    |    "sessionState": "75128aab4b1b",
+                    |    "sessionState": "${SESSION_STATE.value}",
                     |    "methodResponses": [
                     |        [
                     |            "error",
@@ -5475,7 +5980,7 @@ trait EmailQueryMethodContract {
 
     assertThatJson(response)
       .isEqualTo(s"""{
-                    |    "sessionState": "75128aab4b1b",
+                    |    "sessionState": "${SESSION_STATE.value}",
                     |    "methodResponses": [
                     |        [
                     |            "error",
@@ -5494,7 +5999,7 @@ trait EmailQueryMethodContract {
     server.getProbe(classOf[MailboxProbeImpl]).createMailbox(inbox(BOB))
     server.getProbe(classOf[MailboxProbeImpl])
       .appendMessage(BOB.asString, MailboxPath.inbox(BOB), AppendCommand.from(
-        ClassLoader.getSystemResourceAsStream("eml/multipart_simple.eml")))
+        ClassLoaderUtils.getSystemResourceAsSharedStream("eml/multipart_simple.eml")))
       .getMessageId
 
     val request =

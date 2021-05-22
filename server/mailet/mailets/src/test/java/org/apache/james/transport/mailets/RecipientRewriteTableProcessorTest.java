@@ -19,9 +19,12 @@
 
 package org.apache.james.transport.mailets;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.Collection;
@@ -29,27 +32,35 @@ import java.util.Collection;
 import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
 
+import org.apache.commons.configuration2.HierarchicalConfiguration;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.apache.james.core.Domain;
 import org.apache.james.core.MailAddress;
-import org.apache.james.domainlist.api.DomainList;
-import org.apache.james.domainlist.api.DomainListException;
+import org.apache.james.dnsservice.api.InMemoryDNSService;
+import org.apache.james.domainlist.lib.DomainListConfiguration;
+import org.apache.james.domainlist.memory.MemoryDomainList;
 import org.apache.james.rrt.api.RecipientRewriteTable.ErrorMappingException;
+import org.apache.james.rrt.api.RecipientRewriteTableConfiguration;
 import org.apache.james.rrt.api.RecipientRewriteTableException;
 import org.apache.james.rrt.lib.Mapping;
+import org.apache.james.rrt.lib.MappingSource;
+import org.apache.james.rrt.lib.Mappings;
 import org.apache.james.rrt.lib.MappingsImpl;
+import org.apache.james.rrt.memory.MemoryRecipientRewriteTable;
 import org.apache.james.util.MimeMessageUtil;
+import org.apache.mailet.Attribute;
+import org.apache.mailet.AttributeName;
+import org.apache.mailet.AttributeValue;
 import org.apache.mailet.Mail;
 import org.apache.mailet.base.MailAddressFixture;
 import org.apache.mailet.base.test.FakeMail;
 import org.apache.mailet.base.test.FakeMailContext;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import com.google.common.collect.ImmutableList;
 
-public class RecipientRewriteTableProcessorTest {
+class RecipientRewriteTableProcessorTest {
     private static final String NONEDOMAIN = "nonedomain";
     private static final String INVALID_MAIL_ADDRESS = "server-dev@";
 
@@ -58,41 +69,45 @@ public class RecipientRewriteTableProcessorTest {
     private MappingsImpl mappings;
     private FakeMailContext mailetContext;
     private MailAddress nonDomainWithDefaultLocal;
-
-    @Mock DomainList domainList;
-    @Mock org.apache.james.rrt.api.RecipientRewriteTable virtualTableStore;
-
+    private MemoryDomainList domainList;
+    private MemoryRecipientRewriteTable virtualTableStore;
     private RecipientRewriteTableProcessor processor;
 
-    @Before
-    public void setup() throws Exception {
-        MockitoAnnotations.initMocks(this);
+    @BeforeEach
+    void setup() throws Exception {
+        domainList = new MemoryDomainList(new InMemoryDNSService());
+        virtualTableStore = new MemoryRecipientRewriteTable();
+        virtualTableStore.setConfiguration(RecipientRewriteTableConfiguration.DEFAULT_ENABLED);
+
         mailetContext = FakeMailContext.defaultContext();
         processor = new RecipientRewriteTableProcessor(virtualTableStore, domainList, mailetContext);
-        mail = FakeMail.builder().name("mail").sender(MailAddressFixture.ANY_AT_JAMES).build();
+        mail = FakeMail.builder().name("mail")
+            .sender(MailAddressFixture.ANY_AT_JAMES)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes("h: v\r\n".getBytes(UTF_8)))
+            .build();
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
                 .build();
-        message = MimeMessageUtil.defaultMimeMessage();
+        message = MimeMessageUtil.mimeMessageFromBytes("h: v\r\n".getBytes(UTF_8));
 
         nonDomainWithDefaultLocal = new MailAddress(NONEDOMAIN + "@" + MailAddressFixture.JAMES_LOCAL);
     }
 
-    @Test(expected = MessagingException.class)
+    @Test
     public void handleMappingsShouldThrowExceptionWhenMappingsContainAtLeastOneNoneDomainObjectButCannotGetDefaultDomain() throws Exception {
-        when(domainList.getDefaultDomain()).thenThrow(DomainListException.class);
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
                 .add(NONEDOMAIN)
                 .add(MailAddressFixture.OTHER_AT_JAMES.toString())
                 .build();
 
-        processor.handleMappings(mappings, FakeMail.builder().name("mail").sender(MailAddressFixture.ANY_AT_JAMES).build(), MailAddressFixture.OTHER_AT_JAMES);
+        assertThatThrownBy(() ->
+                processor.handleMappings(mappings, FakeMail.builder().name("mail").sender(MailAddressFixture.ANY_AT_JAMES).build(), MailAddressFixture.OTHER_AT_JAMES))
+            .isInstanceOf(MessagingException.class);
     }
 
     @Test
-    public void handleMappingsShouldDoNotCareDefaultDomainWhenMappingsDoesNotContainAnyNoneDomainObject() throws Exception {
-        when(domainList.getDefaultDomain()).thenThrow(DomainListException.class);
+    void handleMappingsShouldDoNotCareDefaultDomainWhenMappingsDoesNotContainAnyNoneDomainObject() throws Exception {
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
                 .add(MailAddressFixture.OTHER_AT_JAMES.toString())
@@ -102,8 +117,8 @@ public class RecipientRewriteTableProcessorTest {
     }
 
     @Test
-    public void handleMappingsShouldReturnTheMailAddressBelongToLocalServer() throws Exception {
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES_LOCAL));
+    void handleMappingsShouldReturnTheMailAddressBelongToLocalServer() throws Exception {
+        defineDefaultDomain(MailAddressFixture.JAMES_LOCAL);
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
                 .add(NONEDOMAIN)
@@ -116,8 +131,8 @@ public class RecipientRewriteTableProcessorTest {
     }
 
     @Test
-    public void handleMappingsShouldReturnTheOnlyMailAddressBelongToLocalServer() throws Exception {
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES2_APACHE_ORG));
+    void handleMappingsShouldReturnTheOnlyMailAddressBelongToLocalServer() throws Exception {
+        defineDefaultDomain(MailAddressFixture.JAMES2_APACHE_ORG);
 
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
@@ -132,8 +147,8 @@ public class RecipientRewriteTableProcessorTest {
     }
 
     @Test
-    public void handleMappingsShouldRemoveMappingElementWhenCannotCreateMailAddress() throws Exception {
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES_LOCAL));
+    void handleMappingsShouldRemoveMappingElementWhenCannotCreateMailAddress() throws Exception {
+        defineDefaultDomain(MailAddressFixture.JAMES_LOCAL);
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
                 .add(NONEDOMAIN)
@@ -147,8 +162,8 @@ public class RecipientRewriteTableProcessorTest {
     }
 
     @Test
-    public void handleMappingsShouldForwardEmailToRemoteServer() throws Exception {
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES_LOCAL));
+    void handleMappingsShouldForwardEmailToRemoteServer() throws Exception {
+        defineDefaultDomain(MailAddressFixture.JAMES_LOCAL);
 
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
@@ -157,12 +172,16 @@ public class RecipientRewriteTableProcessorTest {
                 .add(MailAddressFixture.OTHER_AT_JAMES.toString())
                 .build();
 
+        Attribute attribute = AttributeName.of("dont-loose-my-attribute").withValue(AttributeValue.of("ok ?"));
+        mail.setAttribute(attribute);
+
         processor.handleMappings(mappings, mail, MailAddressFixture.OTHER_AT_JAMES);
 
         FakeMailContext.SentMail expected = FakeMailContext.sentMailBuilder()
                 .sender(MailAddressFixture.ANY_AT_JAMES)
                 .recipients(ImmutableList.of(MailAddressFixture.ANY_AT_JAMES, MailAddressFixture.OTHER_AT_JAMES))
                 .fromMailet()
+                .attribute(attribute)
                 .message(message)
                 .build();
 
@@ -170,8 +189,8 @@ public class RecipientRewriteTableProcessorTest {
     }
 
     @Test
-    public void handleMappingsShouldNotForwardAnyEmailToRemoteServerWhenNoMoreReomoteAddress() throws Exception {
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES_LOCAL));
+    void handleMappingsShouldNotForwardAnyEmailToRemoteServerWhenNoMoreReomoteAddress() throws Exception {
+        defineDefaultDomain(MailAddressFixture.JAMES_LOCAL);
 
         mappings = MappingsImpl.builder()
                 .add(NONEDOMAIN)
@@ -184,8 +203,8 @@ public class RecipientRewriteTableProcessorTest {
     }
     
     @Test
-    public void handleMappingWithOnlyLocalRecipient() throws Exception {
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES_LOCAL));
+    void handleMappingWithOnlyLocalRecipient() throws Exception {
+        defineDefaultDomain(MailAddressFixture.JAMES_LOCAL);
 
         mappings = MappingsImpl.builder()
                 .add(NONEDOMAIN)
@@ -199,8 +218,8 @@ public class RecipientRewriteTableProcessorTest {
     }
     
     @Test
-    public void handleMappingWithOnlyRemoteRecipient() throws Exception {
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES_LOCAL));
+    void handleMappingWithOnlyRemoteRecipient() throws Exception {
+        defineDefaultDomain(MailAddressFixture.JAMES_LOCAL);
 
         mappings = MappingsImpl.builder()
                 .add(MailAddressFixture.ANY_AT_JAMES.toString())
@@ -221,9 +240,7 @@ public class RecipientRewriteTableProcessorTest {
     }
     
     @Test
-    public void processShouldNotRewriteRecipientWhenVirtualTableStoreReturnNullMappings() throws Exception {
-        when(virtualTableStore.getResolvedMappings(any(String.class), any(Domain.class))).thenReturn(null);
-
+    void processShouldNotRewriteRecipientWhenVirtualTableStoreReturnNullMappings() throws Exception {
         mail = FakeMail.builder()
             .name("mail")
             .mimeMessage(message)
@@ -236,8 +253,8 @@ public class RecipientRewriteTableProcessorTest {
     }
     
     @Test
-    public void processShouldSendMailToAllErrorRecipientsWhenErrorMappingException() throws Exception {
-        when(virtualTableStore.getResolvedMappings(eq("other"), eq(Domain.of(MailAddressFixture.JAMES_LOCAL)))).thenThrow(ErrorMappingException.class);
+    void processShouldSendMailToAllErrorRecipientsWhenErrorMappingException() throws Exception {
+        virtualTableStore.addMapping(MappingSource.fromMailAddress(MailAddressFixture.OTHER_AT_LOCAL), Mapping.error("bam"));
 
         mail = FakeMail.builder()
             .name("mail")
@@ -261,12 +278,13 @@ public class RecipientRewriteTableProcessorTest {
     }
 
     @Test
-    public void processShouldNotDuplicateRewrittenMailAddresses() throws Exception {
-        when(virtualTableStore.getResolvedMappings(eq("other"), eq(Domain.of(MailAddressFixture.JAMES_LOCAL))))
-            .thenReturn(MappingsImpl.builder()
-                .add(Mapping.alias(MailAddressFixture.ANY_AT_LOCAL.asString()))
-                .add(Mapping.group(MailAddressFixture.ANY_AT_LOCAL.asString()))
-                .build());
+    void processShouldNotDuplicateRewrittenMailAddresses() throws Exception {
+        virtualTableStore.addMapping(
+            MappingSource.fromMailAddress(MailAddressFixture.OTHER_AT_LOCAL),
+            Mapping.alias(MailAddressFixture.ANY_AT_LOCAL.asString()));
+        virtualTableStore.addMapping(
+            MappingSource.fromMailAddress(MailAddressFixture.OTHER_AT_LOCAL),
+            Mapping.group(MailAddressFixture.ANY_AT_LOCAL.asString()));
 
         mail = FakeMail.builder()
             .name("mail")
@@ -281,8 +299,8 @@ public class RecipientRewriteTableProcessorTest {
     }
     
     @Test
-    public void processShouldSendMailToAllErrorRecipientsWhenRecipientRewriteTableException() throws Exception {
-        when(virtualTableStore.getResolvedMappings(eq("other"), eq(Domain.of(MailAddressFixture.JAMES_LOCAL)))).thenThrow(RecipientRewriteTableException.class);
+    void processShouldSendMailToAllErrorRecipientsWhenRecipientRewriteTableException() throws Exception {
+        virtualTableStore.addMapping(MappingSource.fromMailAddress(MailAddressFixture.OTHER_AT_LOCAL), Mapping.error("bam"));
 
         mail = FakeMail.builder()
             .name("mail")
@@ -306,9 +324,7 @@ public class RecipientRewriteTableProcessorTest {
     }
     
     @Test
-    public void processShouldNotSendMailWhenNoErrorRecipients() throws Exception {
-        when(virtualTableStore.getResolvedMappings(any(String.class), any(Domain.class))).thenReturn(null);
-
+    void processShouldNotSendMailWhenNoErrorRecipients() throws Exception {
         mail = FakeMail.builder()
             .name("mail")
             .mimeMessage(message)
@@ -321,20 +337,27 @@ public class RecipientRewriteTableProcessorTest {
     }
     
     @Test
-    public void processShouldResetMailStateToGhostWhenCanNotBuildNewRecipient() throws Exception {
-        when(virtualTableStore.getResolvedMappings(any(String.class), any(Domain.class))).thenReturn(mappings);
-        when(domainList.getDefaultDomain()).thenReturn(Domain.of(MailAddressFixture.JAMES_LOCAL));
+    void processShouldResetMailStateToGhostWhenCanNotBuildNewRecipient() throws Exception {
+        virtualTableStore.addMapping(
+            MappingSource.fromDomain(MailAddressFixture.JAMES_APACHE_ORG_DOMAIN),
+            Mapping.of(MailAddressFixture.ANY_AT_JAMES2.asString()));
+
+        defineDefaultDomain(MailAddressFixture.JAMES_LOCAL);
 
         mail = FakeMail.builder()
             .name("mail")
             .mimeMessage(message)
-            .recipients(MailAddressFixture.OTHER_AT_JAMES, nonDomainWithDefaultLocal)
+            .recipients(MailAddressFixture.OTHER_AT_JAMES, MailAddressFixture.ANY_AT_JAMES)
             .build();
 
         processor.processMail(mail);
 
         assertThat(mail.getState()).isEqualTo(Mail.GHOST);
         assertThat(mail.getRecipients()).isEmpty();
+    }
+
+    private void defineDefaultDomain(String jamesLocal) throws ConfigurationException {
+        domainList.configure(DomainListConfiguration.builder().defaultDomain(Domain.of(jamesLocal)));
     }
 
 }

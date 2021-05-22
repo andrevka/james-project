@@ -19,6 +19,8 @@
 
 package org.apache.james.webadmin.integration.memory;
 
+import static org.apache.james.JamesServerExtension.Lifecycle.PER_CLASS;
+
 import org.apache.james.JamesServerBuilder;
 import org.apache.james.JamesServerExtension;
 import org.apache.james.MemoryJamesServerMain;
@@ -32,7 +34,6 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import com.google.inject.name.Names;
 
 class MemoryJwtFilterIntegrationTest extends JwtFilterIntegrationTest {
-
     @RegisterExtension
     static JamesServerExtension jamesServerExtension = new JamesServerBuilder<>(JamesServerBuilder.defaultConfigurationProvider())
         .server(configuration -> MemoryJamesServerMain.createServer(configuration)
@@ -41,5 +42,6 @@ class MemoryJwtFilterIntegrationTest extends JwtFilterIntegrationTest {
             .overrideWith(binder -> binder.bind(JwtTokenVerifier.Factory.class)
                 .annotatedWith(Names.named("webadmin"))
                 .toInstance(() -> JwtTokenVerifier.create(jwtConfiguration()))))
+        .lifeCycle(PER_CLASS)
         .build();
 }

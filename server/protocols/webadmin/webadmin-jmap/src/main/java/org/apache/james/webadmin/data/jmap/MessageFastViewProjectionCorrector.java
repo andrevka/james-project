@@ -53,36 +53,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.fge.lambdas.Throwing;
-import com.google.common.base.Preconditions;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 public class MessageFastViewProjectionCorrector {
     private static final Logger LOGGER = LoggerFactory.getLogger(MessageFastViewProjectionCorrector.class);
     private static final Duration PERIOD = Duration.ofSeconds(1);
     public static final int USER_CONCURRENCY = 1;
     public static final int MAILBOX_CONCURRENCY = 1;
-
-    public static class RunningOptions {
-        public static RunningOptions withMessageRatePerSecond(int messageRatePerSecond) {
-            return new RunningOptions(messageRatePerSecond);
-        }
-
-        public static RunningOptions DEFAULT = new RunningOptions(10);
-
-        private final int messagesPerSecond;
-
-        public RunningOptions(int messagesPerSecond) {
-            Preconditions.checkArgument(messagesPerSecond > 0, "'messagesPerSecond' must be strictly positive");
-
-            this.messagesPerSecond = messagesPerSecond;
-        }
-
-        public int getMessagesPerSecond() {
-            return messagesPerSecond;
-        }
-    }
 
     private static class ProjectionEntry {
         private final MessageManager messageManager;
@@ -231,7 +211,7 @@ public class MessageFastViewProjectionCorrector {
     }
 
     private Mono<MessageManager> retrieveMailbox(MailboxSession session, MailboxMetaData mailboxMetadata) {
-        return Mono.fromCallable(() -> mailboxManager.getMailbox(mailboxMetadata.getId(), session));
+        return Mono.from(mailboxManager.getMailboxReactive(mailboxMetadata.getId(), session));
     }
 
     private Flux<ComposedMessageIdWithMetaData> listAllMailboxMessages(MessageManager messageManager, MailboxSession session) {
@@ -241,6 +221,7 @@ public class MessageFastViewProjectionCorrector {
     private Mono<MessageResult> retrieveContent(MessageManager messageManager, MailboxSession session, MessageUid uid) {
         try {
             return Iterators.toFlux(messageManager.getMessages(MessageRange.one(uid), FetchGroup.FULL_CONTENT, session))
+                .subscribeOn(Schedulers.elastic())
                 .next();
         } catch (MailboxException e) {
             return Mono.error(e);

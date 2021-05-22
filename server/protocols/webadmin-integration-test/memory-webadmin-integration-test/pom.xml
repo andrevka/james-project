@@ -23,7 +23,7 @@
     <parent>
         <groupId>org.apache.james</groupId>
         <artifactId>webadmin-integration-test</artifactId>
-        <version>3.6.0-SNAPSHOT</version>
+        <version>3.7.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -36,8 +36,8 @@
         <dependency>
             <groupId>${james.groupId}</groupId>
             <artifactId>james-server-memory-guice</artifactId>
-            <scope>test</scope>
             <type>test-jar</type>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>${james.groupId}</groupId>
@@ -57,8 +57,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <argLine>-Xms512m -Xmx2048m</argLine>
                     <reuseForks>true</reuseForks>
-                    <forkCount>1C</forkCount>
+                    <forkedProcessTimeoutInSeconds>1200</forkedProcessTimeoutInSeconds>
+                    <forkCount>4</forkCount>
                 </configuration>
             </plugin>
         </plugins>

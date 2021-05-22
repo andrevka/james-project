@@ -34,7 +34,6 @@ import org.apache.james.mailbox.model.SearchQuery.Sort.SortClause;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
 import org.apache.james.mailbox.store.search.comparator.BaseSubjectComparator;
 import org.apache.james.mailbox.store.search.comparator.CombinedComparator;
-import org.apache.james.mailbox.store.search.comparator.HeaderDisplayComparator;
 import org.apache.james.mailbox.store.search.comparator.HeaderMailboxComparator;
 import org.apache.james.mailbox.store.search.comparator.MessageComparators;
 import org.apache.james.mailbox.store.search.comparator.SentDateComparator;
@@ -102,18 +101,6 @@ class CombinedComparatorTest {
     void createShouldConvertSentDate() {
         assertThat(CombinedComparator.create(ImmutableList.of(new Sort(SortClause.SentDate))).getComparators())
             .containsOnly(SentDateComparator.SENTDATE);
-    }
-
-    @Test
-    void createShouldConvertDisplayTo() {
-        assertThat(CombinedComparator.create(ImmutableList.of(new Sort(SortClause.DisplayTo))).getComparators())
-            .containsOnly(HeaderDisplayComparator.TO_COMPARATOR);
-    }
-
-    @Test
-    void createShouldConvertDisplayFrom() {
-        assertThat(CombinedComparator.create(ImmutableList.of(new Sort(SortClause.DisplayFrom))).getComparators())
-            .containsOnly(HeaderDisplayComparator.FROM_COMPARATOR);
     }
 
     @Test

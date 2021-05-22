@@ -32,11 +32,13 @@ import org.apache.james.modules.eventstore.MemoryEventStoreModule;
 import org.apache.james.modules.mailbox.MemoryMailboxModule;
 import org.apache.james.modules.protocols.IMAPServerModule;
 import org.apache.james.modules.protocols.JMAPServerModule;
+import org.apache.james.modules.protocols.JmapEventBusModule;
 import org.apache.james.modules.protocols.LMTPServerModule;
 import org.apache.james.modules.protocols.ManageSieveServerModule;
 import org.apache.james.modules.protocols.POP3ServerModule;
 import org.apache.james.modules.protocols.ProtocolHandlerModule;
 import org.apache.james.modules.protocols.SMTPServerModule;
+import org.apache.james.modules.queue.memory.MemoryMailQueueModule;
 import org.apache.james.modules.server.CamelMailetContainerModule;
 import org.apache.james.modules.server.DKIMMailetModule;
 import org.apache.james.modules.server.DLPRoutesModule;
@@ -47,7 +49,6 @@ import org.apache.james.modules.server.MailQueueRoutesModule;
 import org.apache.james.modules.server.MailRepositoriesRoutesModule;
 import org.apache.james.modules.server.MailboxRoutesModule;
 import org.apache.james.modules.server.MailboxesExportRoutesModule;
-import org.apache.james.modules.server.MemoryMailQueueModule;
 import org.apache.james.modules.server.NoJwtModule;
 import org.apache.james.modules.server.RawPostDequeueDecoratorModule;
 import org.apache.james.modules.server.SieveRoutesModule;
@@ -99,6 +100,7 @@ public class MemoryJamesServerMain implements JamesServerMain {
         new SpamAssassinListenerModule());
 
     public static final Module JMAP = Modules.combine(
+        new JmapEventBusModule(),
         new JmapTasksModule(),
         new MemoryDataJmapModule(),
         new JMAPServerModule());

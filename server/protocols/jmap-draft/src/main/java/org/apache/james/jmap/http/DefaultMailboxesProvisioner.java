@@ -19,13 +19,13 @@
 package org.apache.james.jmap.http;
 
 import static org.apache.james.util.FunctionalUtils.negate;
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
 
 import java.util.Optional;
 import java.util.function.Function;
 
 import javax.inject.Inject;
 
-import org.apache.james.core.Username;
 import org.apache.james.mailbox.DefaultMailboxes;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
@@ -44,7 +44,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-class DefaultMailboxesProvisioner {
+public class DefaultMailboxesProvisioner {
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultMailboxesProvisioner.class);
     private final MailboxManager mailboxManager;
     private final SubscriptionManager subscriptionManager;
@@ -52,7 +52,7 @@ class DefaultMailboxesProvisioner {
 
     @Inject
     @VisibleForTesting
-    DefaultMailboxesProvisioner(MailboxManager mailboxManager,
+    public DefaultMailboxesProvisioner(MailboxManager mailboxManager,
                                 SubscriptionManager subscriptionManager,
                                 MetricFactory metricFactory) {
         this.mailboxManager = mailboxManager;
@@ -60,20 +60,15 @@ class DefaultMailboxesProvisioner {
         this.metricFactory = metricFactory;
     }
 
-    Mono<Void> createMailboxesIfNeeded(MailboxSession session) {
-        return metricFactory.decorateSupplierWithTimerMetric("JMAP-mailboxes-provisioning",
-            () -> {
-                Username username = session.getUser();
-                return createDefaultMailboxes(username);
-            });
+    public Mono<Void> createMailboxesIfNeeded(MailboxSession session) {
+        return Mono.from(metricFactory.decoratePublisherWithTimerMetric("JMAP-mailboxes-provisioning",
+            createDefaultMailboxes(session)));
     }
 
-    private Mono<Void> createDefaultMailboxes(Username username) {
-        MailboxSession session = mailboxManager.createSystemSession(username);
-
+    private Mono<Void> createDefaultMailboxes(MailboxSession session) {
         return Flux.fromIterable(DefaultMailboxes.DEFAULT_MAILBOXES)
             .map(toMailboxPath(session))
-            .filterWhen(mailboxPath -> mailboxDoesntExist(mailboxPath, session))
+            .filterWhen(mailboxPath -> mailboxDoesntExist(mailboxPath, session), DEFAULT_CONCURRENCY)
             .concatMap(mailboxPath -> Mono.fromRunnable(() -> createMailbox(mailboxPath, session))
                 .subscribeOn(Schedulers.elastic()))
             .then();

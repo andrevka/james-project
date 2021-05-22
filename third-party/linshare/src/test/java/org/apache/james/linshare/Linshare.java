@@ -24,6 +24,7 @@ import static io.restassured.config.RestAssuredConfig.newConfig;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.UUID;
 
 import org.apache.james.util.docker.Images;
 import org.slf4j.Logger;
@@ -95,7 +96,7 @@ public class Linshare {
     @SuppressWarnings("resource")
     private GenericContainer<?> createDockerDatabase() {
         return new GenericContainer<>("linagora/linshare-database:2.3.2")
-            .withLogConsumer(frame -> LOGGER.debug("<linshare-database> " + frame.getUtf8String()))
+            .withLogConsumer(frame -> LOGGER.debug("<linshare-database> " + frame.getUtf8String().trim()))
             .withNetworkAliases("database", "linshare_database")
             .withEnv("PGDATA", "/var/lib/postgresql/data/pgdata")
             .withEnv("POSTGRES_USER", "linshare")
@@ -106,7 +107,7 @@ public class Linshare {
     @SuppressWarnings("resource")
     private GenericContainer<?> createDockerMongodb() {
         return new GenericContainer<>("mongo:3.2")
-            .withLogConsumer(frame -> LOGGER.debug("<mongo> " + frame.getUtf8String()))
+            .withLogConsumer(frame -> LOGGER.debug("<mongo> " + frame.getUtf8String().trim()))
             .withNetworkAliases("mongodb", "linshare_mongodb")
             .withCommand("mongod --smallfiles")
             .withNetwork(network);
@@ -115,7 +116,7 @@ public class Linshare {
     @SuppressWarnings("resource")
     private GenericContainer<?> createDockerLdap() {
         return new GenericContainer<>("linagora/linshare-ldap-for-tests:1.0.0")
-            .withLogConsumer(frame -> LOGGER.debug("<linshare-ldap-for-tests> " + frame.getUtf8String()))
+            .withLogConsumer(frame -> LOGGER.debug("<linshare-ldap-for-tests> " + frame.getUtf8String().trim()))
             .withNetworkAliases("ldap")
             .withNetwork(network);
     }
@@ -130,13 +131,13 @@ public class Linshare {
     @SuppressWarnings("resource")
     private GenericContainer<?> createDockerBackend() {
         return new GenericContainer<>(
-            new ImageFromDockerfile()
+            new ImageFromDockerfile("linshare-backend-"+ UUID.randomUUID().toString())
                 .withFileFromClasspath("conf/log4j.properties", "backend/conf/log4j.properties")
                 .withFileFromClasspath("conf/catalina.properties", "backend/conf/catalina.properties")
                 .withFileFromClasspath("conf/id_rsa", "backend/conf/id_rsa.pri")
                 .withFileFromClasspath("conf/id_rsa.pub", "backend/conf/id_rsa.pub")
                 .withFileFromClasspath("Dockerfile", "backend/Dockerfile"))
-            .withLogConsumer(frame -> LOGGER.debug("<linshare-backend> " + frame.getUtf8String()))
+            .withLogConsumer(frame -> LOGGER.debug("<linshare-backend> " + frame.getUtf8String().trim()))
             .withNetworkAliases("backend")
             .withEnv("SMTP_HOST", "linshare_smtp")
             .withEnv("SMTP_PORT", "25")
@@ -157,7 +158,7 @@ public class Linshare {
     private GenericContainer<?> createLinshareBackendInit() {
         return new GenericContainer<>("linagora/linshare-init:2.3.2")
             .withNetworkAliases("init")
-            .withLogConsumer(frame -> LOGGER.debug("<linshare-init> " + frame.getUtf8String()))
+            .withLogConsumer(frame -> LOGGER.debug("<linshare-init> " + frame.getUtf8String().trim()))
             .withEnv("LS_HOST", "backend")
             .withEnv("LS_PORT", "8080")
             .withEnv("LS_LDAP_NAME", "ldap-local")

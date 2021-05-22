@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 
 import org.apache.commons.net.imap.IMAPClient;
+import org.apache.james.data.UsersRepositoryModuleChooser;
 import org.apache.james.jmap.draft.JmapJamesServerContract;
 import org.apache.james.modules.AwsS3BlobStoreExtension;
 import org.apache.james.modules.RabbitMQExtension;
@@ -58,7 +59,8 @@ class CassandraRabbitMQLdapJmapJamesServerTest {
         @RegisterExtension
         JamesServerExtension testExtension = baseJamesServerExtensionBuilder(BlobStoreConfiguration.s3()
                 .disableCache()
-                .passthrough())
+                .passthrough()
+                .noCryptoConfig())
             .extension(new AwsS3BlobStoreExtension())
             .lifeCycle(JamesServerExtension.Lifecycle.PER_CLASS)
             .build();
@@ -71,7 +73,8 @@ class CassandraRabbitMQLdapJmapJamesServerTest {
         JamesServerExtension testExtension = baseJamesServerExtensionBuilder(BlobStoreConfiguration.builder()
                 .cassandra()
                 .disableCache()
-                .passthrough())
+                .passthrough()
+                .noCryptoConfig())
             .lifeCycle(JamesServerExtension.Lifecycle.PER_CLASS)
             .build();
     }
@@ -83,12 +86,13 @@ class CassandraRabbitMQLdapJmapJamesServerTest {
                 .configurationFromClasspath()
                 .blobStore(blobStoreConfiguration)
                 .searchConfiguration(SearchConfiguration.elasticSearch())
+                .usersRepository(UsersRepositoryModuleChooser.Implementation.LDAP)
                 .build())
             .extension(new DockerElasticSearchExtension())
             .extension(new CassandraExtension())
             .extension(new RabbitMQExtension())
             .extension(new LdapTestExtension())
-            .server(configuration -> CassandraRabbitMQLdapJamesServerMain.createServer(configuration)
+            .server(configuration -> CassandraRabbitMQJamesServerMain.createServer(configuration)
                 .overrideWith(new TestJMAPServerModule()));
     }
 }

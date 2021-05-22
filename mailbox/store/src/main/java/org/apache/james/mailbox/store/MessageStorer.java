@@ -19,16 +19,17 @@
 
 package org.apache.james.mailbox.store;
 
+import java.io.InputStream;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
 import javax.mail.Flags;
-import javax.mail.internet.SharedInputStream;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.model.Content;
 import org.apache.james.mailbox.model.Mailbox;
 import org.apache.james.mailbox.model.MessageAttachmentMetadata;
 import org.apache.james.mailbox.model.MessageId;
@@ -39,6 +40,7 @@ import org.apache.james.mailbox.store.mail.MessageMapper;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
+import org.apache.james.mime4j.dom.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +53,7 @@ public interface MessageStorer {
      *
      * Otherwize an empty optional will be returned on the right side of the pair.
      */
-    Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> appendMessageToStore(Mailbox mailbox, Date internalDate, int size, int bodyStartOctet, SharedInputStream content, Flags flags, PropertyBuilder propertyBuilder, MailboxSession session) throws MailboxException;
+    Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> appendMessageToStore(Mailbox mailbox, Date internalDate, int size, int bodyStartOctet, Content content, Flags flags, PropertyBuilder propertyBuilder, Optional<Message> maybeMessage, MailboxSession session) throws MailboxException;
 
     /**
      * MessageStorer parsing, storing and returning AttachmentMetadata
@@ -80,31 +82,40 @@ public interface MessageStorer {
         }
 
         @Override
-        public Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> appendMessageToStore(Mailbox mailbox, Date internalDate, int size, int bodyStartOctet, SharedInputStream content, Flags flags, PropertyBuilder propertyBuilder, MailboxSession session) throws MailboxException {
+        public Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> appendMessageToStore(Mailbox mailbox, Date internalDate, int size, int bodyStartOctet, Content content, Flags flags, PropertyBuilder propertyBuilder, Optional<Message> maybeMessage, MailboxSession session) throws MailboxException {
             MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
             MessageId messageId = messageIdFactory.generate();
 
             return mapperFactory.getMessageMapper(session).execute(() -> {
-                List<MessageAttachmentMetadata> attachments = storeAttachments(messageId, content, session);
+                List<MessageAttachmentMetadata> attachments = storeAttachments(messageId, content, maybeMessage, session);
                 MailboxMessage message = messageFactory.createMessage(messageId, mailbox, internalDate, size, bodyStartOctet, content, flags, propertyBuilder, attachments);
                 MessageMetaData metadata = messageMapper.add(mailbox, message);
                 return Pair.of(metadata, Optional.of(attachments));
             });
         }
 
-        private List<MessageAttachmentMetadata> storeAttachments(MessageId messageId, SharedInputStream messageContent, MailboxSession session) throws MailboxException {
-            List<ParsedAttachment> attachments = extractAttachments(messageContent);
+        private List<MessageAttachmentMetadata> storeAttachments(MessageId messageId, Content messageContent, Optional<Message> maybeMessage, MailboxSession session) throws MailboxException {
+            List<ParsedAttachment> attachments = extractAttachments(messageContent, maybeMessage);
             return attachmentMapperFactory.getAttachmentMapper(session)
                 .storeAttachmentsForMessage(attachments, messageId);
         }
 
-        private List<ParsedAttachment> extractAttachments(SharedInputStream contentIn) {
-            try {
-                return messageParser.retrieveAttachments(contentIn.newStream(START, UNLIMITED));
-            } catch (Exception e) {
-                LOGGER.warn("Error while parsing mail's attachments: {}", e.getMessage(), e);
-                return ImmutableList.of();
-            }
+        private List<ParsedAttachment> extractAttachments(Content contentIn, Optional<Message> maybeMessage) {
+            return maybeMessage.map(message -> {
+                try {
+                    return messageParser.retrieveAttachments(message);
+                } catch (Exception e) {
+                    LOGGER.warn("Error while parsing mail's attachments: {}", e.getMessage(), e);
+                    return ImmutableList.<ParsedAttachment>of();
+                }
+            }).orElseGet(() -> {
+                try (InputStream inputStream = contentIn.getInputStream()) {
+                    return messageParser.retrieveAttachments(inputStream);
+                } catch (Exception e) {
+                    LOGGER.warn("Error while parsing mail's attachments: {}", e.getMessage(), e);
+                    return ImmutableList.of();
+                }
+            });
         }
     }
 
@@ -125,7 +136,7 @@ public interface MessageStorer {
         }
 
         @Override
-        public Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> appendMessageToStore(Mailbox mailbox, Date internalDate, int size, int bodyStartOctet, SharedInputStream content, Flags flags, PropertyBuilder propertyBuilder, MailboxSession session) throws MailboxException {
+        public Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> appendMessageToStore(Mailbox mailbox, Date internalDate, int size, int bodyStartOctet, Content content, Flags flags, PropertyBuilder propertyBuilder, Optional<Message> maybeMessage, MailboxSession session) throws MailboxException {
             MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
             MessageId messageId = messageIdFactory.generate();
 

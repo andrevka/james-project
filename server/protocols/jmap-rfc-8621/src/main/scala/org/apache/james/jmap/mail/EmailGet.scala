@@ -25,12 +25,12 @@ import eu.timepit.refined.api.Refined
 import eu.timepit.refined.auto._
 import eu.timepit.refined.numeric.NonNegative
 import eu.timepit.refined.types.string.NonEmptyString
-import org.apache.james.jmap.mail.Email.UnparsedEmailId
+import org.apache.james.jmap.api.change.Limit
+import org.apache.james.jmap.core.{AccountId, Properties, UuidState}
 import org.apache.james.jmap.mail.EmailGetRequest.MaxBodyValueBytes
 import org.apache.james.jmap.mail.EmailHeaders.SPECIFIC_HEADER_PREFIX
 import org.apache.james.jmap.method.WithAccountId
-import org.apache.james.jmap.model.State.State
-import org.apache.james.jmap.model.{AccountId, Properties}
+import org.apache.james.mailbox.model.MessageId
 import org.apache.james.mime4j.dom.Message
 import org.apache.james.mime4j.stream.Field
 
@@ -82,17 +82,17 @@ case class EmailNotFound(value: Set[UnparsedEmailId]) {
 }
 
 case class EmailGetResponse(accountId: AccountId,
-                            state: State,
+                            state: UuidState,
                             list: List[EmailView],
                             notFound: EmailNotFound)
 
-case class SpecificHeaderRequest(headerName: NonEmptyString, property: String, parseOption: Option[ParseOption]) {
+case class SpecificHeaderRequest(property: NonEmptyString, headerName: String, parseOption: Option[ParseOption]) {
   def retrieveHeader(zoneId: ZoneId, message: Message): (String, Option[EmailHeaderValue]) = {
-    val field: Option[Field] = Option(message.getHeader.getFields(property))
+    val field: Option[Field] = Option(message.getHeader.getFields(headerName))
       .map(_.asScala)
       .flatMap(fields => fields.reverse.headOption)
 
-    (headerName, field.map({
+    (property.value, field.map({
       val option = parseOption.getOrElse(AsRaw)
         option match {
           case AsDate => AsDate.extractHeaderValue(_, zoneId)
@@ -100,4 +100,26 @@ case class SpecificHeaderRequest(headerName: NonEmptyString, property: String, p
         }
     }))
   }
+
+  def validate: Either[IllegalArgumentException, SpecificHeaderRequest] = {
+    val forbiddenNames = parseOption.map(_.forbiddenHeaderNames).getOrElse(Set())
+    if (forbiddenNames.contains(EmailHeaderName(headerName))) {
+      Left(new IllegalArgumentException(s"$property is forbidden with $parseOption"))
+    } else {
+      scala.Right(this)
+    }
+  }
 }
+
+case class EmailChangesRequest(accountId: AccountId,
+                               sinceState: UuidState,
+                               maxChanges: Option[Limit]) extends WithAccountId
+
+
+case class EmailChangesResponse(accountId: AccountId,
+                                oldState: UuidState,
+                                newState: UuidState,
+                                hasMoreChanges: HasMoreChanges,
+                                created: Set[MessageId],
+                                updated: Set[MessageId],
+                                destroyed: Set[MessageId])

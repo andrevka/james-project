@@ -23,6 +23,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+import javax.inject.Inject;
+
+import org.apache.james.metrics.api.MetricFactory;
 import org.apache.james.protocols.api.ProtocolSession.State;
 import org.apache.james.protocols.api.Request;
 import org.apache.james.protocols.api.Response;
@@ -30,6 +33,7 @@ import org.apache.james.protocols.api.handler.CommandHandler;
 import org.apache.james.protocols.pop3.POP3Response;
 import org.apache.james.protocols.pop3.POP3Session;
 import org.apache.james.protocols.pop3.mailbox.MessageMetaData;
+import org.apache.james.util.MDCBuilder;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -40,6 +44,13 @@ import com.google.common.collect.ImmutableSet;
 public class ListCmdHandler implements CommandHandler<POP3Session> {
 
     private static final Collection<String> COMMANDS = ImmutableSet.of("LIST");
+
+    private final MetricFactory metricFactory;
+
+    @Inject
+    public ListCmdHandler(MetricFactory metricFactory) {
+        this.metricFactory = metricFactory;
+    }
 
     /**
      * Handler method called upon receipt of a LIST command. Returns the number
@@ -55,6 +66,15 @@ public class ListCmdHandler implements CommandHandler<POP3Session> {
     @Override
     @SuppressWarnings("unchecked")
     public Response onCommand(POP3Session session, Request request) {
+        return metricFactory.decorateSupplierWithTimerMetric("pop3-list", () ->
+            MDCBuilder.withMdc(MDCBuilder.create()
+                    .addContext(MDCBuilder.ACTION, "LIST")
+                    .addContext(MDCConstants.withSession(session))
+                    .addContext(MDCConstants.forRequest(request)),
+                () -> list(session, request)));
+    }
+
+    private Response list(POP3Session session, Request request) {
         String parameters = request.getArgument();
         List<MessageMetaData> uidList = session.getAttachment(POP3Session.UID_LIST, State.Transaction).orElse(ImmutableList.of());
         List<String> deletedUidList = session.getAttachment(POP3Session.DELETED_UID_LIST, State.Transaction).orElse(ImmutableList.of());
@@ -89,13 +109,13 @@ public class ListCmdHandler implements CommandHandler<POP3Session> {
                 int num = 0;
                 try {
                     num = Integer.parseInt(parameters);
-                    
+
                     MessageMetaData data = MessageMetaDataUtils.getMetaData(session, num);
                     if (data == null) {
                         StringBuilder responseBuffer = new StringBuilder(64).append("Message (").append(num).append(") does not exist.");
                         return  new POP3Response(POP3Response.ERR_RESPONSE, responseBuffer.toString());
                     }
-                    
+
                     if (!deletedUidList.contains(data.getUid())) {
                         StringBuilder responseBuffer = new StringBuilder(64).append(num).append(" ").append(data.getSize());
                         response = new POP3Response(POP3Response.OK_RESPONSE, responseBuffer.toString());

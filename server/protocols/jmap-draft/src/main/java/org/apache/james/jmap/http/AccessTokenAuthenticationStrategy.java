@@ -29,6 +29,7 @@ import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
 
 import reactor.core.publisher.Mono;
 import reactor.netty.http.server.HttpServerRequest;
@@ -49,10 +50,16 @@ public class AccessTokenAuthenticationStrategy implements AuthenticationStrategy
         return Mono.fromCallable(() -> authHeaders(httpRequest))
             .filter(tokenString -> !tokenString.startsWith("Bearer"))
             .map(AccessToken::fromString)
-            .filterWhen(accessTokenManager::isValid)
             .flatMap(item -> Mono.from(accessTokenManager.getUsernameFromToken(item)))
             .map(mailboxManager::createSystemSession)
             .onErrorResume(InvalidAccessToken.class, error -> Mono.error(new UnauthorizedException("Invalid access token", error)))
             .onErrorResume(NotAnAccessTokenException.class, error -> Mono.error(new UnauthorizedException("Not an access token", error)));
+    }
+
+    @Override
+    public AuthenticationChallenge correspondingChallenge() {
+        return AuthenticationChallenge.of(
+            AuthenticationScheme.of("Bearer"),
+            ImmutableMap.of("realm", "JMAP Draft access token"));
     }
 }

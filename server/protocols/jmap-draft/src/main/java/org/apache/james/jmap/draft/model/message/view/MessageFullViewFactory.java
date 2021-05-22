@@ -95,15 +95,14 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
     }
 
     public Mono<MessageFullView> fromMetaDataWithContent(MetaDataWithContent message) {
-        return Mono.fromCallable(() -> Helpers.parse(message.getContent()))
+        return Mono.fromCallable(() -> Helpers.retrieveMessage(message))
             .flatMap(Throwing.function(mimeMessage -> fromMetaDataWithContent(message, mimeMessage)));
     }
 
     private Mono<MessageFullView> fromMetaDataWithContent(MetaDataWithContent message, Message mimeMessage) throws IOException {
         MessageContent messageContent = messageContentExtractor.extract(mimeMessage);
         Optional<String> htmlBody = messageContent.getHtmlBody();
-        Optional<String> mainTextContent = messageContent.extractMainTextContent(htmlTextExtractor);
-        Optional<String> textBody = computeTextBodyIfNeeded(messageContent, mainTextContent);
+        Optional<String> textBody = computeTextBodyIfNeeded(messageContent);
 
         return retrieveProjection(messageContent, message.getMessageId(),
                 () -> MessageFullView.hasAttachment(getAttachments(message.getAttachments())))
@@ -186,7 +185,7 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
         Helpers.assertOneMessageId(messageResults);
 
         MessageResult firstMessageResult = messageResults.iterator().next();
-        List<MailboxId> mailboxIds = Helpers.getMailboxIds(messageResults);
+        Set<MailboxId> mailboxIds = Helpers.getMailboxIds(messageResults);
         Keywords keywords = Helpers.getKeywords(messageResults);
 
         return MetaDataWithContent.builderFromMessageResult(firstMessageResult)
@@ -196,10 +195,9 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
             .build();
     }
 
-    private Optional<String> computeTextBodyIfNeeded(MessageContent messageContent, Optional<String> mainTextContent) {
+    private Optional<String> computeTextBodyIfNeeded(MessageContent messageContent) {
         return messageContent.getTextBody()
-            .map(Optional::of)
-            .orElse(mainTextContent);
+            .or(() -> messageContent.extractMainTextContent(htmlTextExtractor));
     }
 
     private Optional<String> mainTextContent(MessageContent messageContent) {
@@ -255,6 +253,11 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
             private List<MessageAttachmentMetadata> attachments;
             private Set<MailboxId> mailboxIds = Sets.newHashSet();
             private MessageId messageId;
+            private Optional<Message> message;
+
+            public Builder() {
+                this.message = Optional.empty();
+            }
 
             public Builder uid(MessageUid uid) {
                 this.uid = uid;
@@ -296,7 +299,12 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
                 return this;
             }
 
-            public Builder mailboxIds(List<MailboxId> mailboxIds) {
+            public Builder message(Message message) {
+                this.message = Optional.of(message);
+                return this;
+            }
+
+            public Builder mailboxIds(Set<MailboxId> mailboxIds) {
                 this.mailboxIds.addAll(mailboxIds);
                 return this;
             }
@@ -315,7 +323,8 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
                 Preconditions.checkArgument(attachments != null);
                 Preconditions.checkArgument(mailboxIds != null);
                 Preconditions.checkArgument(messageId != null);
-                return new MetaDataWithContent(uid, keywords, size, internalDate, content, sharedContent, attachments, mailboxIds, messageId);
+
+                return new MetaDataWithContent(uid, keywords, size, internalDate, content, sharedContent, attachments, mailboxIds, messageId, message);
             }
         }
 
@@ -328,6 +337,7 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
         private final List<MessageAttachmentMetadata> attachments;
         private final Set<MailboxId> mailboxIds;
         private final MessageId messageId;
+        private final Optional<Message> message;
 
         private MetaDataWithContent(MessageUid uid,
                                     Keywords keywords,
@@ -337,7 +347,7 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
                                     SharedInputStream sharedContent,
                                     List<MessageAttachmentMetadata> attachments,
                                     Set<MailboxId> mailboxIds,
-                                    MessageId messageId) {
+                                    MessageId messageId, Optional<Message> message) {
             this.uid = uid;
             this.keywords = keywords;
             this.size = size;
@@ -347,6 +357,11 @@ public class MessageFullViewFactory implements MessageViewFactory<MessageFullVie
             this.attachments = attachments;
             this.mailboxIds = mailboxIds;
             this.messageId = messageId;
+            this.message = message;
+        }
+
+        public Optional<Message> getMessage() {
+            return message;
         }
 
         public MessageUid getUid() {

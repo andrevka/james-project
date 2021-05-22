@@ -24,9 +24,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Optional;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class JwtConfigurationTest {
+class JwtConfigurationTest {
     private static final String INVALID_PUBLIC_KEY = "invalidPublicKey";
     private static final String VALID_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\n" +
         "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtlChO/nlVP27MpdkG0Bh\n" +
@@ -39,32 +39,32 @@ public class JwtConfigurationTest {
         "-----END PUBLIC KEY-----";
 
     @Test
-    public void getJwtPublicKeyPemShouldReturnEmptyWhenEmptyPublicKey() throws Exception {
+    void getJwtPublicKeyPemShouldReturnEmptyWhenEmptyPublicKey() {
         JwtConfiguration jwtConfiguration = new JwtConfiguration(Optional.empty());
 
         assertThat(jwtConfiguration.getJwtPublicKeyPem()).isNotPresent();
     }
 
     @Test
-    public void constructorShouldThrowWhenNullPublicKey() throws Exception {
+    void constructorShouldThrowWhenNullPublicKey() {
         assertThatThrownBy(() -> new JwtConfiguration(null))
             .isInstanceOf(NullPointerException.class);
     }
 
     @Test
-    public void constructorShouldThrowWhenNonePublicKey() throws Exception {
+    void constructorShouldThrowWhenNonePublicKey() {
         assertThatThrownBy(() -> new JwtConfiguration(Optional.of("")))
             .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    public void constructorShouldThrowWhenInvalidPublicKey() throws Exception {
+    void constructorShouldThrowWhenInvalidPublicKey() {
         assertThatThrownBy(() -> new JwtConfiguration(Optional.of(INVALID_PUBLIC_KEY)))
             .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    public void getJwtPublicKeyPemShouldReturnWhenValidPublicKey() throws Exception {
+    void getJwtPublicKeyPemShouldReturnWhenValidPublicKey() {
         JwtConfiguration jwtConfiguration = new JwtConfiguration(Optional.of(VALID_PUBLIC_KEY));
 
         assertThat(jwtConfiguration.getJwtPublicKeyPem()).isPresent();

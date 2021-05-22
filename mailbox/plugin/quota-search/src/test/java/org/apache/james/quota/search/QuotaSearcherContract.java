@@ -25,8 +25,8 @@ import static org.apache.james.core.CoreFixture.Users.BENOIT_AT_DOMAIN_TLD;
 import static org.apache.james.quota.search.QuotaBoundaryFixture._50;
 import static org.apache.james.quota.search.QuotaBoundaryFixture._75;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Durations.ONE_HUNDRED_MILLISECONDS;
 
-import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 
 import org.apache.james.core.CoreFixture.Users.Alphabet;
@@ -38,14 +38,21 @@ import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.model.ByteContent;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.user.api.UsersRepositoryException;
+import org.awaitility.Awaitility;
+import org.awaitility.core.ConditionFactory;
 import org.junit.jupiter.api.Test;
 
 import com.google.common.base.Strings;
 
 public interface QuotaSearcherContract {
 
+    ConditionFactory CALMLY_AWAIT = Awaitility
+        .with().pollInterval(ONE_HUNDRED_MILLISECONDS)
+        .and().pollDelay(ONE_HUNDRED_MILLISECONDS)
+        .await();
     String PASSWORD = "any";
 
     @Test
@@ -61,11 +68,12 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, Simpson.LISA, withSize(51));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .moreThan(_50)))
-            .containsOnly(Simpson.HOMER, Simpson.LISA);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .moreThan(_50)))
+                .containsOnly(Simpson.HOMER, Simpson.LISA));
     }
 
     @Test
@@ -81,11 +89,12 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, Simpson.LISA, withSize(51));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .lessThan(_50)))
-            .containsOnly(Simpson.HOMER, Simpson.BART);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .lessThan(_50)))
+                .containsOnly(Simpson.HOMER, Simpson.BART));
     }
 
     @Test
@@ -102,12 +111,13 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, BENOIT_AT_DOMAIN_TLD, withSize(80));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .moreThan(_50)
-                    .lessThan(_75)))
-            .containsOnly(Simpson.HOMER, Simpson.LISA);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .moreThan(_50)
+                        .lessThan(_75)))
+                .containsOnly(Simpson.HOMER, Simpson.LISA));
     }
 
     @Test
@@ -124,11 +134,12 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, BENOIT_AT_DOMAIN_TLD, withSize(50));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .hasDomain(SIMPSON_COM)))
-            .containsOnly(Simpson.BART, Simpson.LISA);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .hasDomain(SIMPSON_COM)))
+                .containsOnly(Simpson.BART, Simpson.LISA));
     }
 
     @Test
@@ -145,12 +156,13 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, BENOIT_AT_DOMAIN_TLD, withSize(50));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .hasDomain(SIMPSON_COM)
-                    .lessThan(_50)))
-            .containsOnly(Simpson.BART);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .hasDomain(SIMPSON_COM)
+                        .lessThan(_50)))
+                .containsOnly(Simpson.BART));
     }
 
     @Test
@@ -168,10 +180,11 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, Alphabet.ABB, withSize(50));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()))
-            .containsExactly(Alphabet.AAA, Alphabet.ABA, Alphabet.ABB, Alphabet.ACB);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()))
+                .containsExactly(Alphabet.AAA, Alphabet.ABA, Alphabet.ABB, Alphabet.ACB));
     }
 
     @Test
@@ -189,11 +202,12 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, Alphabet.ABB, withSize(50));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .withLimit(Limit.of(2))))
-            .containsOnly(Alphabet.AAA, Alphabet.ABA);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .withLimit(Limit.of(2))))
+                .containsOnly(Alphabet.AAA, Alphabet.ABA));
     }
 
     @Test
@@ -211,11 +225,12 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, Alphabet.ABB, withSize(50));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .withOffset(Offset.of(2))))
-            .containsOnly(Alphabet.ABB, Alphabet.ACB);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .withOffset(Offset.of(2))))
+                .containsOnly(Alphabet.ABB, Alphabet.ACB));
     }
 
     @Test
@@ -234,11 +249,12 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, BENOIT_AT_DOMAIN_TLD, withSize(50));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .withOffset(Offset.of(5))))
-            .isEmpty();
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .withOffset(Offset.of(5))))
+                .isEmpty());
     }
 
     @Test
@@ -256,12 +272,13 @@ public interface QuotaSearcherContract {
         appendMessage(testSystem, Alphabet.ABB, withSize(50));
         testSystem.await();
 
-        assertThat(
-            testSystem.getQuotaSearcher()
-                .search(QuotaQuery.builder()
-                    .withLimit(Limit.of(2))
-                    .withOffset(Offset.of(1))))
-            .containsExactly(Alphabet.ABA, Alphabet.ABB);
+        CALMLY_AWAIT.untilAsserted(() ->
+            assertThat(
+                testSystem.getQuotaSearcher()
+                    .search(QuotaQuery.builder()
+                        .withLimit(Limit.of(2))
+                        .withOffset(Offset.of(1))))
+                .containsExactly(Alphabet.ABA, Alphabet.ABB));
     }
 
     default void appendMessage(QuotaSearchTestSystem testSystem, Username username, MessageManager.AppendCommand appendCommand) throws MailboxException, UsersRepositoryException, DomainListException {
@@ -276,6 +293,6 @@ public interface QuotaSearcherContract {
 
     default MessageManager.AppendCommand withSize(int size) {
         byte[] bytes = Strings.repeat("a", size).getBytes(StandardCharsets.UTF_8);
-        return MessageManager.AppendCommand.from(new ByteArrayInputStream(bytes));
+        return MessageManager.AppendCommand.from(new ByteContent(bytes));
     }
 }

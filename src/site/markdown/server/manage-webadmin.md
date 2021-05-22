@@ -299,8 +299,8 @@ Response codes:
 ## Administrating users
 
    - [Create a user](#Create_a_user)
-   - [Testing a user existence](#Testing_a_user_existence)
    - [Updating a user password](#Updating_a_user_password)
+   - [Testing a user existence](#Testing_a_user_existence)
    - [Deleting a user](#Deleting_a_user)
    - [Retrieving the user list](#Retrieving_the_user_list)
    - [Retrieving the list of allowed `From` headers for a given user](Retrieving_the_list_of_allowed_From_headers_for_a_given_user)
@@ -320,10 +320,27 @@ Response codes:
 
  - 204: The user was successfully created
  - 400: The user name or the payload is invalid
+ - 409: The user name already exists
 
-Note: if the user exists already, its password will be updated.
+Note: If the user exists already, its password cannot be updated using this. 
+If you want to update a user's password, please have a look at [Update a user password](#Updating_a_user_password).
 
-###Testing a user existence
+### Updating a user password
+
+```
+curl -XPUT http://ip:port/users/usernameToBeUsed?force \
+  -d '{"password":"passwordToBeUsed"}' \ 
+  -H "Content-Type: application/json"
+```
+
+Response codes:
+
+- 204: The user's password was successfully updated
+- 400: The user name or the payload is invalid
+
+This also can be used to create a new user.
+
+### Testing a user existence
 
 ```
 curl -XHEAD http://ip:port/users/usernameToBeUsed
@@ -594,7 +611,9 @@ This optional parameter must have a strictly positive integer as a value and be 
 An admin can also specify the reindexing mode it wants to use when running the task:
 
  - `mode` the reindexing mode used. There are 2 modes for the moment:
-   - `rebuildAll` allows to rebuild all indexes. This is the default mode.
+   - `rebuildAll` allows to rebuild all indexes. It drops indexed entries prior reindexing. This is the default mode.
+   - `rebuildAllNoCleanup` allows to rebuild all indexes. It skips the cleanup phase thus will not remove evicted entries
+   upon reindex. However it yields better performances on a known to be empty index.
    - `fixOutdated` will check for outdated indexed document and reindex only those.
    
 This optional parameter must be passed as query parameter. 
@@ -648,7 +667,9 @@ This optional parameter must have a strictly positive integer as a value and be 
 An admin can also specify the reindexing mode it wants to use when running the task:
 
  - `mode` the reindexing mode used. There are 2 modes for the moment:
-   - `rebuildAll` allows to rebuild all indexes. This is the default mode.
+   - `rebuildAll` allows to rebuild all indexes. It drops indexed entries prior reindexing. This is the default mode.
+   - `rebuildAllNoCleanup` allows to rebuild all indexes. It skips the cleanup phase thus will not remove evicted entries
+   upon reindex. However it yields better performances on a known to be empty index.
    - `fixOutdated` will check for outdated indexed document and reindex only those.
    
 This optional parameter must be passed as query parameter.
@@ -682,6 +703,34 @@ The scheduled task will have the following type `error-recovery-indexation` and 
 }
 ```
 
+##### Create missing parent mailboxes
+
+Will schedule a task for creating all the missing parent mailboxes in a hierarchical mailbox tree, which is the result 
+of a partially failed rename operation of a child mailbox. 
+
+```
+curl -XPOST 'http://ip:port/mailboxes?task=createMissingParents'
+```
+
+[More details about endpoints returning a task](#Endpoints_returning_a_task).
+
+Response codes:
+
+ - 201: Success. Corresponding task id is returned.
+ - 400: Error in the request. Details can be found in the reported error.
+
+The scheduled task will have the following type `createMissingParents` and the following `additionalInformation`:
+
+```
+{
+  "type":"createMissingParents"    
+  "created": ["1", "2" ],
+  "totalCreated": 2,
+  "failures": [],
+  "totalFailure": 0
+}
+```
+
 ### Single mailbox
 
 #### ReIndexing a mailbox mails
@@ -708,7 +757,9 @@ This optional parameter must have a strictly positive integer as a value and be 
 An admin can also specify the reindexing mode it wants to use when running the task:
 
  - `mode` the reindexing mode used. There are 2 modes for the moment:
-   - `rebuildAll` allows to rebuild all indexes. This is the default mode.
+   - `rebuildAll` allows to rebuild all indexes. It drops indexed entries prior reindexing. This is the default mode.
+   - `rebuildAllNoCleanup` allows to rebuild all indexes. It skips the cleanup phase thus will not remove evicted entries
+   upon reindex. However it yields better performances on a known to be empty index.
    - `fixOutdated` will check for outdated indexed document and reindex only those.
    
 This optional parameter must be passed as query parameter.
@@ -859,7 +910,9 @@ This optional parameter must have a strictly positive integer as a value and be 
 An admin can also specify the reindexing mode it wants to use when running the task:
 
  - `mode` the reindexing mode used. There are 2 modes for the moment:
-   - `rebuildAll` allows to rebuild all indexes. This is the default mode.
+   - `rebuildAll` allows to rebuild all indexes. It drops indexed entries prior reindexing. This is the default mode.
+   - `rebuildAllNoCleanup` allows to rebuild all indexes. It skips the cleanup phase thus will not remove evicted entries
+   upon reindex. However it yields better performances on a known to be empty index.
    - `fixOutdated` will check for outdated indexed document and reindex only those.
    
 This optional parameter must be passed as query parameter.
@@ -942,7 +995,7 @@ curl -XPUT http://ip:port/users/{usernameToBeUsed}/mailboxes/{mailboxNameToBeCre
 ```
 
 Resource name `usernameToBeUsed` should be an existing user
-Resource name `mailboxNameToBeCreated` should not be empty, nor contain # % * characters.
+Resource name `mailboxNameToBeCreated` should not be empty, nor contain `% *` characters, nor starting with `#`.
 
 Response codes:
 
@@ -1061,7 +1114,9 @@ This optional parameter must have a strictly positive integer as a value and be 
 An admin can also specify the reindexing mode it wants to use when running the task:
 
  - `mode` the reindexing mode used. There are 2 modes for the moment:
-   - `rebuildAll` allows to rebuild all indexes. This is the default mode.
+   - `rebuildAll` allows to rebuild all indexes. It drops indexed entries prior reindexing. This is the default mode.
+   - `rebuildAllNoCleanup` allows to rebuild all indexes. It skips the cleanup phase thus will not remove evicted entries
+   upon reindex. However it yields better performances on a known to be empty index.
    - `fixOutdated` will check for outdated indexed document and reindex only those.
    
 This optional parameter must be passed as query parameter.
@@ -1108,6 +1163,36 @@ Warning: Canceling this task should be considered unsafe as it will leave the cu
 
 Warning: While we have been trying to reduce the inconsistency window to a maximum (by keeping track of ongoing events),
 concurrent changes done during the reIndexing might be ignored.
+
+### Subscribing a user to all of its mailboxes
+ 
+```
+curl -XPOST http://ip:port/users/{usernameToBeUsed}/mailboxes?task=subscribeAll
+```
+
+Will schedule a task for subscribing a user to all of its mailboxes.
+ 
+[More details about endpoints returning a task](#Endpoints_returning_a_task).
+
+Most users are unaware of what an IMAP subscription is, nor how they can manage it. If the subscription list gets out
+of sync with the mailbox list, it could result in downgraded user experience (see MAILBOX-405). This task allow
+to reset the subscription list to the mailbox list on a per user basis thus working around the aforementioned issues.
+
+Response codes:
+ 
+ - 201: Success. Corresponding task id is returned.
+ - 404: No such user
+
+The scheduled task will have the following type `SubscribeAllTask` and the following `additionalInformation`:
+
+```
+{
+  "type":"SubscribeAllTask",
+  "username":"user@domain.com",
+  "subscribedCount":18,
+  "unsubscribedCount": 3
+}
+```
 
 ### Recomputing User JMAP fast message view projection
 

@@ -31,6 +31,7 @@ import static org.apache.james.mock.smtp.server.model.SMTPCommand.RCPT_TO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Durations.TEN_SECONDS;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -39,6 +40,7 @@ import java.util.List;
 import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
 
+import org.apache.commons.net.smtp.AuthenticatingSMTPClient;
 import org.apache.commons.net.smtp.SMTPConnectionClosedException;
 import org.apache.james.core.MailAddress;
 import org.apache.james.core.builder.MimeMessageBuilder;
@@ -47,13 +49,13 @@ import org.apache.james.mock.smtp.server.model.Mail;
 import org.apache.james.mock.smtp.server.model.MockSMTPBehavior;
 import org.apache.james.mock.smtp.server.model.Operator;
 import org.apache.james.mock.smtp.server.model.Response;
+import org.apache.james.mock.smtp.server.model.SMTPExtension;
 import org.apache.james.util.MimeMessageUtil;
 import org.apache.james.util.Port;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.SMTPSendingException;
 import org.apache.mailet.base.test.FakeMail;
 import org.awaitility.Awaitility;
-import org.awaitility.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -119,18 +121,129 @@ class MockSMTPServerTest {
 
             sender.sendMessage(mail);
 
-            Awaitility.await().atMost(Duration.TEN_SECONDS)
+            Awaitility.await().atMost(TEN_SECONDS)
                 .untilAsserted(() -> {
                     List<Mail> mails = mailRepository.list();
-                    Mail.Envelope expectedEnvelope = new Mail.Envelope(
+                    Mail.Envelope expectedEnvelope = Mail.Envelope.ofAddresses(
                         new MailAddress(BOB),
-                        ImmutableList.of(new MailAddress(ALICE), new MailAddress(JACK)));
+                        new MailAddress(ALICE), new MailAddress(JACK));
                     assertThat(mails)
                         .hasSize(1)
                         .allSatisfy(Throwing.consumer(assertedMail -> {
                             assertThat(assertedMail.getEnvelope()).isEqualTo(expectedEnvelope);
                             assertThat(assertedMail.getMessage()).contains(MimeMessageUtil.asString(message));
                         }));
+                });
+        }
+    }
+
+    @Nested
+    class ExtensionTests {
+        @Test
+        void extraExtensionsShouldBeExposed() throws Exception {
+            behaviorRepository.setSmtpExtensions(ImmutableList.of(SMTPExtension.of("DSN")));
+
+            AuthenticatingSMTPClient smtpClient = new AuthenticatingSMTPClient("TLS", "UTF-8");
+
+            try {
+                smtpClient.connect("localhost", mockServer.getPort().getValue());
+                smtpClient.ehlo("localhost");
+
+                assertThat(smtpClient.getReplyString())
+                    .contains("250-DSN");
+            } finally {
+                smtpClient.disconnect();
+            }
+        }
+    }
+
+    @Nested
+    class ESMTPParametersTest {
+        @Test
+        void mailFromParametersShouldBeRecognised() throws Exception {
+            AuthenticatingSMTPClient smtpClient = new AuthenticatingSMTPClient("TLS", "UTF-8");
+
+            try {
+                smtpClient.connect("localhost", mockServer.getPort().getValue());
+                smtpClient.ehlo("localhost");
+                smtpClient.mail("<bob@james.org> RET=HDRS ENVID=gabouzomeuh");
+                smtpClient.rcpt("<alice@james.org>");
+                smtpClient.sendShortMessageData("A short message...");
+            } finally {
+                smtpClient.disconnect();
+            }
+
+            Mail.Envelope expectedEnvelope = Mail.Envelope.builder()
+                .addMailParameter(Mail.Parameter.builder()
+                    .name("RET")
+                    .value("HDRS")
+                    .build())
+                .addMailParameter(Mail.Parameter.builder()
+                    .name("ENVID")
+                    .value("gabouzomeuh")
+                    .build())
+                .from(new MailAddress(BOB))
+                .addRecipientMailAddress(new MailAddress(ALICE))
+                .build();
+
+            Awaitility.await().atMost(TEN_SECONDS)
+                .untilAsserted(() -> {
+                    List<Mail> mails = mailRepository.list();
+                    assertThat(mails)
+                        .hasSize(1)
+                        .allSatisfy(Throwing.consumer(assertedMail ->
+                            assertThat(assertedMail.getEnvelope()).isEqualTo(expectedEnvelope)));
+                });
+        }
+
+        @Test
+        void rcptToParametersShouldBeRecognised() throws Exception {
+            AuthenticatingSMTPClient smtpClient = new AuthenticatingSMTPClient("TLS", "UTF-8");
+
+            try {
+                smtpClient.connect("localhost", mockServer.getPort().getValue());
+                smtpClient.ehlo("localhost");
+                smtpClient.mail("<bob@james.org>");
+                smtpClient.rcpt("<alice@james.org> ORCPT=rfc822;alice@james.org NOTIFY=FAILURE,DELAY");
+                smtpClient.rcpt("<jack@james.org> ORCPT=rfc822;jack@james.org NOTIFY=NEVER");
+                smtpClient.sendShortMessageData("A short message...");
+            } finally {
+                smtpClient.disconnect();
+            }
+
+            Mail.Envelope expectedEnvelope = Mail.Envelope.builder()
+                .from(new MailAddress(BOB))
+                .addRecipient(Mail.Recipient.builder()
+                    .addParameter(Mail.Parameter.builder()
+                        .name("ORCPT")
+                        .value("rfc822;alice@james.org")
+                        .build())
+                    .addParameter(Mail.Parameter.builder()
+                        .name("NOTIFY")
+                        .value("FAILURE,DELAY")
+                        .build())
+                    .address(new MailAddress(ALICE))
+                    .build())
+                .addRecipient(Mail.Recipient.builder()
+                    .addParameter(Mail.Parameter.builder()
+                        .name("ORCPT")
+                        .value("rfc822;jack@james.org")
+                        .build())
+                    .addParameter(Mail.Parameter.builder()
+                        .name("NOTIFY")
+                        .value("NEVER")
+                        .build())
+                    .address(new MailAddress(JACK))
+                    .build())
+                .build();
+
+            Awaitility.await().atMost(TEN_SECONDS)
+                .untilAsserted(() -> {
+                    List<Mail> mails = mailRepository.list();
+                    assertThat(mails)
+                        .hasSize(1)
+                        .allSatisfy(Throwing.consumer(assertedMail ->
+                            assertThat(assertedMail.getEnvelope()).isEqualTo(expectedEnvelope)));
                 });
         }
     }
@@ -228,7 +341,7 @@ class MockSMTPServerTest {
             sendMessageIgnoreError(mail1);
 
             sendMessageIgnoreError(mail1);
-            Awaitility.await().atMost(Duration.TEN_SECONDS)
+            Awaitility.await().atMost(TEN_SECONDS)
                 .untilAsserted(() -> assertThat(mailRepository.list()).hasSize(1));
         }
 

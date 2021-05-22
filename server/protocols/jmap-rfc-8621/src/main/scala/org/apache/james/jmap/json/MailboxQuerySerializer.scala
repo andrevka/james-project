@@ -19,8 +19,8 @@
 
 package org.apache.james.jmap.json
 
+import org.apache.james.jmap.core.{CanCalculateChanges, QueryState}
 import org.apache.james.jmap.mail.{MailboxFilter, MailboxQueryRequest, MailboxQueryResponse}
-import org.apache.james.jmap.model._
 import org.apache.james.mailbox.Role
 import org.apache.james.mailbox.model.MailboxId
 import play.api.libs.json._
@@ -29,7 +29,6 @@ import scala.jdk.OptionConverters._
 import scala.language.implicitConversions
 
 object MailboxQuerySerializer {
-  private implicit val accountIdWrites: Format[AccountId] = Json.valueFormat[AccountId]
   private implicit val canCalculateChangeWrites: Writes[CanCalculateChanges] = Json.valueWrites[CanCalculateChanges]
 
   private implicit val mailboxIdWrites: Writes[MailboxId] = mailboxId => JsString(mailboxId.serialize)
@@ -56,7 +55,7 @@ object MailboxQuerySerializer {
   private implicit val emailQueryRequestReads: Reads[MailboxQueryRequest] = Json.reads[MailboxQueryRequest]
   private implicit val queryStateWrites: Writes[QueryState] = Json.valueWrites[QueryState]
 
-  private implicit def mailboxQueryResponseWrites: OWrites[MailboxQueryResponse] = Json.writes[MailboxQueryResponse]
+  private implicit val mailboxQueryResponseWrites: OWrites[MailboxQueryResponse] = Json.writes[MailboxQueryResponse]
 
   def serialize(mailboxQueryResponse: MailboxQueryResponse): JsObject = Json.toJsObject(mailboxQueryResponse)
 

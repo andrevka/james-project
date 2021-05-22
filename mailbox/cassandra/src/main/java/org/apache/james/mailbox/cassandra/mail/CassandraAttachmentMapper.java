@@ -20,6 +20,7 @@
 package org.apache.james.mailbox.cassandra.mail;
 
 import static org.apache.james.blob.api.BlobStore.StoragePolicy.LOW_COST;
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -47,6 +48,7 @@ import org.slf4j.LoggerFactory;
 
 import com.github.steveash.guavate.Guavate;
 import com.google.common.base.Preconditions;
+import com.google.common.io.ByteSource;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -68,15 +70,6 @@ public class CassandraAttachmentMapper implements AttachmentMapper {
     }
 
     @Override
-    public void endRequest() {
-    }
-
-    @Override
-    public <T> T execute(Transaction<T> transaction) throws MailboxException {
-        return transaction.run();
-    }
-
-    @Override
     public AttachmentMetadata getAttachment(AttachmentId attachmentId) throws AttachmentNotFoundException {
         Preconditions.checkArgument(attachmentId != null);
         return getAttachmentInternal(attachmentId)
@@ -88,7 +81,7 @@ public class CassandraAttachmentMapper implements AttachmentMapper {
     public List<AttachmentMetadata> getAttachments(Collection<AttachmentId> attachmentIds) {
         Preconditions.checkArgument(attachmentIds != null);
         return Flux.fromIterable(attachmentIds)
-            .flatMap(this::getAttachmentsAsMono)
+            .flatMap(this::getAttachmentsAsMono, DEFAULT_CONCURRENCY)
             .collect(Guavate.toImmutableList())
             .block();
     }
@@ -96,7 +89,7 @@ public class CassandraAttachmentMapper implements AttachmentMapper {
     @Override
     public InputStream loadAttachmentContent(AttachmentId attachmentId) throws AttachmentNotFoundException, IOException {
         return attachmentDAOV2.getAttachment(attachmentId)
-            .map(daoAttachment -> blobStore.read(blobStore.getDefaultBucketName(), daoAttachment.getBlobId()))
+            .map(daoAttachment -> blobStore.read(blobStore.getDefaultBucketName(), daoAttachment.getBlobId(), LOW_COST))
             .blockOptional()
             .orElseThrow(() -> new AttachmentNotFoundException(attachmentId.toString()));
     }
@@ -147,12 +140,17 @@ public class CassandraAttachmentMapper implements AttachmentMapper {
     }
 
     private Mono<MessageAttachmentMetadata> storeAttachmentAsync(ParsedAttachment parsedAttachment, MessageId ownerMessageId) {
-        AttachmentId attachmentId = AttachmentId.random();
-        byte[] content = parsedAttachment.getContent();
-        return Mono.from(blobStore.save(blobStore.getDefaultBucketName(), content, LOW_COST))
-            .map(blobId -> new DAOAttachment(attachmentId, blobId, parsedAttachment.getContentType(), content.length))
-            .flatMap(daoAttachment -> storeAttachmentWithIndex(daoAttachment, ownerMessageId))
-            .then(Mono.defer(() -> Mono.just(parsedAttachment.asMessageAttachment(attachmentId, content.length))));
+        try {
+            AttachmentId attachmentId = AttachmentId.random();
+            ByteSource content = parsedAttachment.getContent();
+            long size = content.size();
+            return Mono.from(blobStore.save(blobStore.getDefaultBucketName(), content, LOW_COST))
+                .map(blobId -> new DAOAttachment(attachmentId, blobId, parsedAttachment.getContentType(), size))
+                .flatMap(daoAttachment -> storeAttachmentWithIndex(daoAttachment, ownerMessageId))
+                .then(Mono.defer(() -> Mono.just(parsedAttachment.asMessageAttachment(attachmentId, size))));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private Mono<Void> storeAttachmentWithIndex(DAOAttachment daoAttachment, MessageId ownerMessageId) {

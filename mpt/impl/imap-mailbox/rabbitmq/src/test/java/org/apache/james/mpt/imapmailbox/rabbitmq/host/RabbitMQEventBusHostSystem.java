@@ -20,6 +20,9 @@
 
 package org.apache.james.mpt.imapmailbox.rabbitmq.host;
 
+import static org.apache.james.backends.rabbitmq.RabbitMQExtension.RECONNECTION_HANDLERS;
+
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.james.backends.rabbitmq.DockerRabbitMQ;
@@ -27,17 +30,19 @@ import org.apache.james.backends.rabbitmq.ReactorRabbitMQChannelPool;
 import org.apache.james.backends.rabbitmq.SimpleConnectionPool;
 import org.apache.james.core.quota.QuotaCountLimit;
 import org.apache.james.core.quota.QuotaSizeLimit;
-import org.apache.james.event.json.EventSerializer;
+import org.apache.james.event.json.MailboxEventSerializer;
+import org.apache.james.events.EventBusId;
+import org.apache.james.events.MemoryEventDeadLetters;
+import org.apache.james.events.NamingStrategy;
+import org.apache.james.events.RabbitMQEventBus;
+import org.apache.james.events.RetryBackoffConfiguration;
+import org.apache.james.events.RoutingKeyConverter;
 import org.apache.james.imap.api.process.ImapProcessor;
 import org.apache.james.imap.encode.main.DefaultImapEncoderFactory;
 import org.apache.james.imap.main.DefaultImapDecoderFactory;
 import org.apache.james.imap.processor.main.DefaultImapProcessorFactory;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.events.MailboxIdRegistrationKey;
-import org.apache.james.mailbox.events.MemoryEventDeadLetters;
-import org.apache.james.mailbox.events.RabbitMQEventBus;
-import org.apache.james.mailbox.events.RetryBackoffConfiguration;
-import org.apache.james.mailbox.events.RoutingKeyConverter;
 import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMessageId;
 import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
@@ -73,7 +78,10 @@ public class RabbitMQEventBusHostSystem extends JamesImapHostSystem {
     public void beforeTest() throws Exception {
         super.beforeTest();
 
-        connectionPool = new SimpleConnectionPool(dockerRabbitMQ.createRabbitConnectionFactory());
+        connectionPool = new SimpleConnectionPool(dockerRabbitMQ.createRabbitConnectionFactory(),
+            RECONNECTION_HANDLERS, SimpleConnectionPool.Configuration.builder()
+                .retries(2)
+                .initialDelay(Duration.ofMillis(5)));
         reactorRabbitMQChannelPool = new ReactorRabbitMQChannelPool(connectionPool.getResilientConnection(),
             ReactorRabbitMQChannelPool.Configuration.DEFAULT);
         reactorRabbitMQChannelPool.start();
@@ -108,12 +116,12 @@ public class RabbitMQEventBusHostSystem extends JamesImapHostSystem {
     private RabbitMQEventBus createEventBus() {
         InMemoryMessageId.Factory messageIdFactory = new InMemoryMessageId.Factory();
         InMemoryId.Factory mailboxIdFactory = new InMemoryId.Factory();
-        EventSerializer eventSerializer = new EventSerializer(mailboxIdFactory, messageIdFactory, new DefaultUserQuotaRootResolver.DefaultQuotaRootDeserializer());
+        MailboxEventSerializer eventSerializer = new MailboxEventSerializer(mailboxIdFactory, messageIdFactory, new DefaultUserQuotaRootResolver.DefaultQuotaRootDeserializer());
         RoutingKeyConverter routingKeyConverter = new RoutingKeyConverter(ImmutableSet.of(new MailboxIdRegistrationKey.Factory(mailboxIdFactory)));
-        return new RabbitMQEventBus(reactorRabbitMQChannelPool.getSender(), reactorRabbitMQChannelPool::createReceiver,
+        return new RabbitMQEventBus(new NamingStrategy("mailboxEvent-"), reactorRabbitMQChannelPool.getSender(), reactorRabbitMQChannelPool::createReceiver,
             eventSerializer, RetryBackoffConfiguration.DEFAULT, routingKeyConverter, new MemoryEventDeadLetters(),
             new RecordingMetricFactory(),
-            reactorRabbitMQChannelPool);
+            reactorRabbitMQChannelPool, EventBusId.random());
     }
 
     @Override

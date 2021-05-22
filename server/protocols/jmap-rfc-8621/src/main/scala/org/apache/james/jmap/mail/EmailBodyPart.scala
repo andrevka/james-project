@@ -15,7 +15,7 @@
  * KIND, either express or implied.  See the License for the    *
  * specific language governing permissions and limitations      *
  * under the License.                                           *
- * ***************************************************************/
+ ****************************************************************/
 
 package org.apache.james.jmap.mail
 
@@ -28,18 +28,19 @@ import eu.timepit.refined.auto._
 import eu.timepit.refined.numeric.NonNegative
 import eu.timepit.refined.refineV
 import org.apache.commons.io.IOUtils
+import org.apache.james.jmap.core.Properties
 import org.apache.james.jmap.mail.Email.Size
-import org.apache.james.jmap.mail.EmailBodyPart.{MULTIPART_ALTERNATIVE, TEXT_HTML, TEXT_PLAIN}
+import org.apache.james.jmap.mail.EmailBodyPart.{FILENAME_PREFIX, MULTIPART_ALTERNATIVE, TEXT_HTML, TEXT_PLAIN}
 import org.apache.james.jmap.mail.PartId.PartIdValue
-import org.apache.james.jmap.model.Properties
 import org.apache.james.mailbox.model.{Cid, MessageId, MessageResult}
-import org.apache.james.mime4j.codec.DecodeMonitor
+import org.apache.james.mime4j.codec.{DecodeMonitor, DecoderUtil}
+import org.apache.james.mime4j.dom.field.{ContentLanguageField, ContentTypeField, FieldName}
 import org.apache.james.mime4j.dom.{Entity, Message, Multipart, TextBody => Mime4JTextBody}
 import org.apache.james.mime4j.message.{DefaultMessageBuilder, DefaultMessageWriter}
-import org.apache.james.mime4j.stream.MimeConfig
+import org.apache.james.mime4j.stream.{Field, MimeConfig, RawField}
+import org.apache.james.util.html.HtmlTextExtractor
 
 import scala.jdk.CollectionConverters._
-import scala.jdk.OptionConverters._
 import scala.util.{Failure, Success, Try}
 
 object PartId {
@@ -65,6 +66,7 @@ object EmailBodyPart {
   val TEXT_PLAIN: Type = Type("text/plain")
   val TEXT_HTML: Type = Type("text/html")
   val MULTIPART_ALTERNATIVE: Type = Type("multipart/alternative")
+  val FILENAME_PREFIX = "name"
 
   val defaultProperties: Properties = Properties("partId", "blobId", "size", "name", "type", "charset", "disposition", "cid", "language", "location")
   val allowedProperties: Properties = defaultProperties ++ Properties("subParts", "headers")
@@ -123,18 +125,12 @@ object EmailBodyPart {
           blobId = blobId,
           headers = entity.getHeader.getFields.asScala.toList.map(EmailHeader(_)),
           size = size,
-          name = Option(entity.getFilename).map(Name),
+          name = Name.of(entity),
           `type` = Type(entity.getMimeType),
           charset = Option(entity.getCharset).map(Charset),
-          disposition = Option(entity.getDispositionType).map(Disposition),
-          cid = headerValue(entity, "Content-Id")
-            .flatMap(Cid.parser()
-              .relaxed()
-              .unwrap()
-              .parse(_)
-              .toScala),
-          language = headerValue(entity, "Content-Language")
-            .map(Language),
+          disposition = Option(entity.getDispositionType).map(Disposition(_)),
+          cid = ClientCid.of(entity),
+          language = Languages.of(entity),
           location = headerValue(entity, "Content-Location")
             .map(Location),
           subParts = subParts,
@@ -162,12 +158,60 @@ object EmailBodyPart {
   } yield (aValue, bValue)
 }
 
-case class Name(value: String)
-case class Type(value: String)
-case class Charset(value: String)
-case class Disposition(value: String)
-case class Language(value: String)
-case class Location(value: String)
+object Name {
+  def of(entity: Entity): Option[Name] = Option(entity.getHeader.getField(FieldName.CONTENT_TYPE))
+    .flatMap {
+      case contentTypeField: ContentTypeField => Option(contentTypeField.getParameter(FILENAME_PREFIX))
+          .map(DecoderUtil.decodeEncodedWords(_, DecodeMonitor.SILENT))
+      case _ => None
+    }.map(Name(_))
+}
+
+case class Name(value: String) extends AnyVal
+case class Type(value: String) extends AnyVal
+case class Charset(value: String) extends AnyVal
+
+object Disposition {
+  val ATTACHMENT = Disposition("attachment")
+  val INLINE = Disposition("inline")
+}
+
+case class Disposition(value: String) extends AnyVal
+
+object Languages {
+  def of(entity: Entity): Option[Languages] =
+    Option(entity.getHeader.getField(FieldName.CONTENT_LANGUAGE))
+      .flatMap {
+        case contentLanguageField: ContentLanguageField => Some(Languages(contentLanguageField.getLanguages.asScala.toList.map(Language)))
+        case _ => None
+      }
+}
+
+case class Languages(value: List[Language]) {
+  def asField: Field = new RawField("Content-Language", value.map(_.value).mkString(", "))
+}
+
+case class Language(value: String) extends AnyVal
+
+case class Location(value: String) extends AnyVal {
+  def asField: Field = new RawField("Content-Location", value)
+}
+
+object Context {
+  def of(`type`: Type): Context = `type` match {
+    case MULTIPART_ALTERNATIVE => AlternativeContext
+    case _ => NoContext
+  }
+  def of(`type`: Type, previousContext: Context): Context = (`type`, previousContext) match {
+    case (_, AlternativeContext) => AlternativeContext
+    case (MULTIPART_ALTERNATIVE, _) => AlternativeContext
+    case _ => NoContext
+  }
+}
+
+sealed trait Context
+case object NoContext extends Context
+case object AlternativeContext extends Context
 
 case class EmailBodyPart(partId: PartId,
                          blobId: Option[BlobId],
@@ -178,7 +222,7 @@ case class EmailBodyPart(partId: PartId,
                          charset: Option[Charset],
                          disposition: Option[Disposition],
                          cid: Option[Cid],
-                         language: Option[Language],
+                         language: Option[Languages],
                          location: Option[Location],
                          subParts: Option[List[EmailBodyPart]],
                          entity: Entity) {
@@ -193,6 +237,14 @@ case class EmailBodyPart(partId: PartId,
           isTruncated = IsTruncated(false)))
       }
     case _ => Success(None)
+  }
+
+  def textBodyContent(htmlTextExtractor: HtmlTextExtractor): Try[Option[EmailBodyValue]] = `type` match {
+    case TEXT_HTML => bodyContent.map(maybeContent => maybeContent.map(
+      content => EmailBodyValue(htmlTextExtractor.toPlainText(content.value),
+        content.isEncodingProblem,
+        content.isTruncated)))
+    case _ => bodyContent
   }
 
   private def charset(charset: Option[String]): java.nio.charset.Charset = charset
@@ -224,13 +276,14 @@ case class EmailBodyPart(partId: PartId,
   private val shouldBeDisplayedAsAttachment: Boolean = !shouldBeDisplayedAsBody && subParts.isEmpty
 
   private def textBodyOfMultipart: List[EmailBodyPart] = `type` match {
-    case MULTIPART_ALTERNATIVE => textPlainSubparts
+    case MULTIPART_ALTERNATIVE => getBodyParts(subParts.getOrElse(Nil), TEXT_PLAIN)
     case _ => subParts.getOrElse(Nil)
       .flatMap(subPart => subPart.textBody)
   }
 
   private def htmlBodyOfMultipart: List[EmailBodyPart] = `type` match {
-    case MULTIPART_ALTERNATIVE => textHtmlSubparts
+    case MULTIPART_ALTERNATIVE => getBodyParts(subParts.getOrElse(Nil), TEXT_HTML)
+      .flatMap(subPart => subPart.htmlBody)
     case _ => subParts.getOrElse(Nil)
       .flatMap(subPart => subPart.htmlBody)
   }
@@ -238,9 +291,14 @@ case class EmailBodyPart(partId: PartId,
   private def attachmentsOfMultipart: List[EmailBodyPart] = subParts.getOrElse(Nil)
     .flatMap(_.attachments)
 
-  private def textPlainSubparts: List[EmailBodyPart] = subParts.getOrElse(Nil)
-    .filter(subPart => subPart.`type`.equals(TEXT_PLAIN))
-
-  private def textHtmlSubparts: List[EmailBodyPart] = subParts.getOrElse(Nil)
-    .filter(subPart => subPart.`type`.equals(TEXT_HTML))
+  private def getBodyParts(bodyParts: List[EmailBodyPart], `type`: Type): List[EmailBodyPart] =
+    if (bodyParts.isEmpty) {
+      Nil
+    } else {
+      bodyParts.filter(subPart => subPart.`type`.equals(`type`)) ++
+        getBodyParts(
+          bodyParts
+            .filter(subPart => !subPart.`type`.equals(`type`))
+            .flatMap(subPart => subPart.subParts.getOrElse(Nil)), `type`)
+    }
 }

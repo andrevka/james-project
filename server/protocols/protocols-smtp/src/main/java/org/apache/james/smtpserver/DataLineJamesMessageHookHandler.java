@@ -49,7 +49,6 @@ import org.apache.james.protocols.smtp.hook.HookResult;
 import org.apache.james.protocols.smtp.hook.HookResultHook;
 import org.apache.james.protocols.smtp.hook.MessageHook;
 import org.apache.james.server.core.MailImpl;
-import org.apache.james.server.core.MimeMessageCopyOnWriteProxy;
 import org.apache.james.server.core.MimeMessageInputStream;
 import org.apache.james.server.core.MimeMessageInputStreamSource;
 import org.apache.mailet.Mail;
@@ -100,10 +99,8 @@ public class DataLineJamesMessageHookHandler implements DataLineFilter, Extensib
                 // store mail in the session so we can be sure it get disposed later
                 session.setAttachment(SMTPConstants.MAIL, mail, State.Transaction);
 
-                MimeMessageCopyOnWriteProxy mimeMessageCopyOnWriteProxy = null;
                 try {
-                    mimeMessageCopyOnWriteProxy = new MimeMessageCopyOnWriteProxy(mmiss);
-                    mail.setMessage(mimeMessageCopyOnWriteProxy);
+                    mail.setMessageContent(mmiss);
 
                     Response response = processExtensions(session, mail);
 
@@ -115,7 +112,6 @@ public class DataLineJamesMessageHookHandler implements DataLineFilter, Extensib
                     LOGGER.info("Unexpected error handling DATA stream", e);
                     return new SMTPResponse(SMTPRetCode.LOCAL_ERROR, "Unexpected error handling DATA stream.");
                 } finally {
-                    LifecycleUtil.dispose(mimeMessageCopyOnWriteProxy);
                     LifecycleUtil.dispose(mmiss);
                     LifecycleUtil.dispose(mail);
                 }
@@ -169,26 +165,8 @@ public class DataLineJamesMessageHookHandler implements DataLineFilter, Extensib
                     }
                 }
 
-                for (JamesMessageHook messageHandler : messageHandlers) {
-                    LOGGER.debug("executing james message handler {}", messageHandler);
-                    long start = System.currentTimeMillis();
-                    HookResult hRes = messageHandler.onMessage(session, mail);
-                    long executionTime = System.currentTimeMillis() - start;
-                    if (rHooks != null) {
-                        for (HookResultHook rHook : rHooks) {
-                            LOGGER.debug("executing hook {}", rHook);
-                            hRes = rHook.onHookResult(session, hRes, executionTime, messageHandler);
-                        }
-                    }
+                return executeJamesMessageHooks(session, mail);
 
-                    SMTPResponse response = AbstractHookableCmdHandler.calcDefaultSMTPResponse(hRes);
-
-                    // if the response is received, stop processing of command
-                    // handlers
-                    if (response != null) {
-                        return response;
-                    }
-                }
             } finally {
                 // Dispose the mail object and remove it
                 if (mail != null) {
@@ -197,6 +175,32 @@ public class DataLineJamesMessageHookHandler implements DataLineFilter, Extensib
                 }
                 // do the clean up
                 session.resetState();
+            }
+        }
+        return null;
+    }
+
+    protected SMTPResponse executeJamesMessageHooks(SMTPSession session, Mail mail) {
+        if (messageHandlers != null) {
+            for (JamesMessageHook messageHandler : messageHandlers) {
+                LOGGER.debug("executing james message handler {}", messageHandler);
+                long start = System.currentTimeMillis();
+                HookResult hRes = messageHandler.onMessage(session, mail);
+                long executionTime = System.currentTimeMillis() - start;
+                if (rHooks != null) {
+                    for (HookResultHook rHook : rHooks) {
+                        LOGGER.debug("executing hook {}", rHook);
+                        hRes = rHook.onHookResult(session, hRes, executionTime, messageHandler);
+                    }
+                }
+
+                SMTPResponse response = AbstractHookableCmdHandler.calcDefaultSMTPResponse(hRes);
+
+                // if the response is received, stop processing of command
+                // handlers
+                if (response != null) {
+                    return response;
+                }
             }
         }
         return null;

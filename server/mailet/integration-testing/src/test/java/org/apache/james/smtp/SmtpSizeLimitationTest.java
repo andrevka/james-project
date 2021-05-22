@@ -24,6 +24,8 @@ import static org.apache.james.mailets.configuration.Constants.LOCALHOST_IP;
 import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.File;
+
 import org.apache.james.mailets.TemporaryJamesServer;
 import org.apache.james.mailets.configuration.SmtpConfiguration;
 import org.apache.james.modules.protocols.SmtpGuiceProbe;
@@ -32,27 +34,25 @@ import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.SMTPSendingException;
 import org.apache.james.utils.SmtpSendingStep;
-import org.junit.After;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.google.common.base.Strings;
 
-public class SmtpSizeLimitationTest {
+class SmtpSizeLimitationTest {
     private static final String USER = "user@" + DEFAULT_DOMAIN;
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
 
-    private void createJamesServer(SmtpConfiguration.Builder smtpConfiguration) throws Exception {
+    private void createJamesServer(File temporaryFolder, SmtpConfiguration.Builder smtpConfiguration) throws Exception {
         jamesServer = TemporaryJamesServer.builder()
             .withSmtpConfiguration(smtpConfiguration)
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         DataProbe dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -60,16 +60,16 @@ public class SmtpSizeLimitationTest {
         dataProbe.addUser(USER, PASSWORD);
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         if (jamesServer != null) {
             jamesServer.shutdown();
         }
     }
 
     @Test
-    public void messageShouldNotBeAcceptedWhenOverSized() throws Exception {
-        createJamesServer(SmtpConfiguration.builder()
+    void messageShouldNotBeAcceptedWhenOverSized(@TempDir File temporaryFolder) throws Exception {
+        createJamesServer(temporaryFolder, SmtpConfiguration.builder()
             .doNotVerifyIdentity()
             .withMaxMessageSizeInKb(10));
 
@@ -81,8 +81,8 @@ public class SmtpSizeLimitationTest {
     }
 
     @Test
-    public void messageShouldBeAcceptedWhenNotOverSized() throws Exception {
-        createJamesServer(SmtpConfiguration.builder()
+    void messageShouldBeAcceptedWhenNotOverSized(@TempDir File temporaryFolder) throws Exception {
+        createJamesServer(temporaryFolder, SmtpConfiguration.builder()
             .doNotVerifyIdentity()
             .withMaxMessageSizeInKb(10));
 

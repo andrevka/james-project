@@ -24,7 +24,7 @@
     <parent>
         <groupId>org.apache.james</groupId>
         <artifactId>james-server</artifactId>
-        <version>3.6.0-SNAPSHOT</version>
+        <version>3.7.0-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -33,8 +33,8 @@
     <name>Apache James :: Server :: Blob</name>
 
     <modules>
+        <module>blob-aes</module>
         <module>blob-api</module>
-        <module>blob-storage-strategy</module>
         <module>blob-cassandra</module>
         <module>blob-common</module>
         <module>blob-export-api</module>
@@ -42,6 +42,7 @@
         <module>blob-gc</module>
         <module>blob-memory</module>
         <module>blob-s3</module>
+        <module>blob-storage-strategy</module>
 
         <module>mail-store</module>
     </modules>

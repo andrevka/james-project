@@ -41,9 +41,11 @@
 
         <processor state="error" enableJmx="true">
             <mailet match="All" class="Bounce">
+                <onMailetException>ignore</onMailetException>
             </mailet>
             <mailet match="All" class="ToRepository">
                 <repositoryPath>cassandra://var/mail/error/</repositoryPath>
+                <onMailetException>ignore</onMailetException>
             </mailet>
         </processor>
 
@@ -61,6 +63,8 @@
             <mailet match="All" class="RecipientRewriteTable">
                 <errorProcessor>rrt-error</errorProcessor>
             </mailet>
+            <mailet match="RecipientIsLocal" class="org.apache.james.jmap.mailet.VacationMailet"/>
+            <mailet match="RecipientIsLocal" class="org.apache.james.jmap.mailet.filter.JMAPFiltering"/>
             <mailet match="All" class="RemoteDelivery">
                 <outgoingQueue>outgoing</outgoingQueue>
                 <delayTime>5 minutes</delayTime>

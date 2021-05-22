@@ -19,9 +19,7 @@
 
 package org.apache.james.imapserver.netty;
 
-import java.io.Closeable;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -134,20 +132,7 @@ public class ImapRequestFrameDecoder extends FrameDecoder implements NettyConsta
                             //ignore exception during close
                         }
 
-                        reader = new NettyStreamImapRequestLineReader(channel, new FileInputStream(f) {
-                            /**
-                             * Delete the File on close too
-                             */
-                            @Override
-                            public void close() throws IOException {
-                                try {
-                                    super.close();
-                                } finally {
-                                    f.delete();
-                                }
-                            }
-
-                        }, retry);
+                        reader = new NettyStreamImapRequestLineReader(channel, f, retry);
                     } else {
                         attachment.put(WRITTEN_DATA, written);
                         return null;
@@ -182,13 +167,6 @@ public class ImapRequestFrameDecoder extends FrameDecoder implements NettyConsta
                     reader.consumeLine();
                 }
                 
-                // Code portion commented further to JAMES-1436.
-                // TODO Remove if no negative feedback on JAMES-1436.
-                //ChannelHandler handler = (ChannelHandler) attachment.remove(FRAMER);
-                //if (handler != null) {
-                //    channel.getPipeline().addFirst(FRAMER, handler);
-                //}
-                
                 ((SwitchableLineBasedFrameDecoder) channel.getPipeline().get(FRAMER)).enableFraming();
                 
                 attachment.clear();
@@ -202,11 +180,6 @@ public class ImapRequestFrameDecoder extends FrameDecoder implements NettyConsta
                 
                 final ChannelPipeline pipeline = channel.getPipeline();
                 final ChannelHandlerContext framerContext = pipeline.getContext(FRAMER);
-                
-                // Code portion commented further to JAMES-1436.
-                // TODO Remove if no negative feedback on JAMES-1436.
-                //ChannelHandler handler = channel.getPipeline().remove(FRAMER);
-                //attachment.put(FRAMER, handler);
 
                 // SwitchableDelimiterBasedFrameDecoder added further to JAMES-1436.
                 final SwitchableLineBasedFrameDecoder framer = (SwitchableLineBasedFrameDecoder) pipeline.get(FRAMER);
@@ -214,14 +187,6 @@ public class ImapRequestFrameDecoder extends FrameDecoder implements NettyConsta
                 
                 buffer.resetReaderIndex();
                 return null;
-            } finally {
-                if (reader instanceof Closeable) {
-                    try {
-                        ((Closeable) reader).close();
-                    } catch (IOException ignored) {
-                        // Nothing to do
-                    }
-                }
             }
         } else {
             // The session was null so may be the case because the channel was already closed but there were still bytes in the buffer.

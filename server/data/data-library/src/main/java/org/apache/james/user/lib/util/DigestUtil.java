@@ -19,6 +19,8 @@
 
 package org.apache.james.user.lib.util;
 
+import static java.nio.charset.StandardCharsets.ISO_8859_1;
+
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -31,6 +33,7 @@ import java.util.Locale;
 import javax.mail.MessagingException;
 import javax.mail.internet.MimeUtility;
 
+import org.apache.james.user.lib.model.Algorithm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,7 +77,7 @@ public class DigestUtil {
             digestFile(args[args.length - 1], alg);
         } else {
             try {
-                String hash = digestString(args[args.length - 1], alg);
+                String hash = digestString(args[args.length - 1], Algorithm.DEFAULT_FACTORY.of(alg));
                 System.out.println("Hash is: " + hash);
             } catch (NoSuchAlgorithmException nsae) {
                 System.out.println("No such algorithm available");
@@ -132,18 +135,21 @@ public class DigestUtil {
      * @throws NoSuchAlgorithmException
      *             if the algorithm passed in cannot be found
      */
-    public static String digestString(String pass, String algorithm) throws NoSuchAlgorithmException {
+    public static String digestString(String pass, Algorithm algorithm) throws NoSuchAlgorithmException {
 
         MessageDigest md;
         ByteArrayOutputStream bos;
 
         try {
-            md = MessageDigest.getInstance(algorithm);
-            byte[] digest = md.digest(pass.getBytes("iso-8859-1"));
+            md = MessageDigest.getInstance(algorithm.asString());
+            byte[] digest = md.digest(pass.getBytes(ISO_8859_1));
             bos = new ByteArrayOutputStream();
             OutputStream encodedStream = MimeUtility.encode(bos, "base64");
             encodedStream.write(digest);
-            return bos.toString("iso-8859-1");
+            if (!algorithm.isLegacy()) {
+                encodedStream.close();
+            }
+            return bos.toString(ISO_8859_1);
         } catch (IOException | MessagingException e) {
             throw new RuntimeException("Fatal error", e);
         }

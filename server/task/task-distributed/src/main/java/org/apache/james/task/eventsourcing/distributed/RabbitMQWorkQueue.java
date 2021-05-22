@@ -21,12 +21,13 @@
 package org.apache.james.task.eventsourcing.distributed;
 
 import static com.rabbitmq.client.MessageProperties.PERSISTENT_TEXT_PLAIN;
+import static org.apache.james.backends.rabbitmq.Constants.AUTO_DELETE;
+import static org.apache.james.backends.rabbitmq.Constants.DURABLE;
 import static org.apache.james.backends.rabbitmq.Constants.REQUEUE;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.UUID;
 
 import org.apache.james.backends.rabbitmq.Constants;
 import org.apache.james.backends.rabbitmq.ReceiverProvider;
@@ -68,7 +69,6 @@ public class RabbitMQWorkQueue implements WorkQueue {
 
     static final String CANCEL_REQUESTS_EXCHANGE_NAME = "taskManagerCancelRequestsExchange";
     static final String CANCEL_REQUESTS_ROUTING_KEY = "taskManagerCancelRequestsRoutingKey";
-    private static final String CANCEL_REQUESTS_QUEUE_NAME_PREFIX = "taskManagerCancelRequestsQueue";
     public static final String TASK_ID = "taskId";
 
     public static final int NUM_RETRIES = 8;
@@ -76,8 +76,10 @@ public class RabbitMQWorkQueue implements WorkQueue {
 
     private final TaskManagerWorker worker;
     private final JsonTaskSerializer taskSerializer;
+    private final RabbitMQWorkQueueConfiguration configuration;
     private final Sender sender;
     private final ReceiverProvider receiverProvider;
+    private final CancelRequestQueueName cancelRequestQueueName;
     private Receiver receiver;
     private UnicastProcessor<TaskId> sendCancelRequestsQueue;
     private Disposable sendCancelRequestsQueueHandle;
@@ -85,11 +87,15 @@ public class RabbitMQWorkQueue implements WorkQueue {
     private Disposable cancelRequestListenerHandle;
     private Receiver cancelRequestListener;
 
-    public RabbitMQWorkQueue(TaskManagerWorker worker, Sender sender, ReceiverProvider receiverProvider, JsonTaskSerializer taskSerializer) {
+    public RabbitMQWorkQueue(TaskManagerWorker worker, Sender sender,
+                             ReceiverProvider receiverProvider, JsonTaskSerializer taskSerializer,
+                             RabbitMQWorkQueueConfiguration configuration, CancelRequestQueueName cancelRequestQueueName) {
+        this.cancelRequestQueueName = cancelRequestQueueName;
         this.worker = worker;
         this.receiverProvider = receiverProvider;
         this.sender = sender;
         this.taskSerializer = taskSerializer;
+        this.configuration = configuration;
     }
 
     @Override
@@ -100,7 +106,10 @@ public class RabbitMQWorkQueue implements WorkQueue {
 
     private void startWorkqueue() {
         declareQueue();
-        consumeWorkqueue();
+
+        if (configuration.enabled()) {
+            consumeWorkqueue();
+        }
     }
 
     @VisibleForTesting
@@ -165,12 +174,10 @@ public class RabbitMQWorkQueue implements WorkQueue {
     }
 
     private void listenToCancelRequests() {
-        String queueName = CANCEL_REQUESTS_QUEUE_NAME_PREFIX + UUID.randomUUID().toString();
-
         sender.declareExchange(ExchangeSpecification.exchange(CANCEL_REQUESTS_EXCHANGE_NAME)).block();
-        sender.declare(QueueSpecification.queue(queueName).durable(false).autoDelete(true)).block();
-        sender.bind(BindingSpecification.binding(CANCEL_REQUESTS_EXCHANGE_NAME, CANCEL_REQUESTS_ROUTING_KEY, queueName)).block();
-        registerCancelRequestsListener(queueName);
+        sender.declare(QueueSpecification.queue(cancelRequestQueueName.asString()).durable(!DURABLE).autoDelete(AUTO_DELETE)).block();
+        sender.bind(BindingSpecification.binding(CANCEL_REQUESTS_EXCHANGE_NAME, CANCEL_REQUESTS_ROUTING_KEY, cancelRequestQueueName.asString())).block();
+        registerCancelRequestsListener(cancelRequestQueueName.asString());
 
         sendCancelRequestsQueue = UnicastProcessor.create();
         sendCancelRequestsQueueHandle = sender

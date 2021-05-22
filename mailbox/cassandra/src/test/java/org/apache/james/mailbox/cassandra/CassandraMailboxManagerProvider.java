@@ -20,6 +20,11 @@
 package org.apache.james.mailbox.cassandra;
 
 import org.apache.james.backends.cassandra.CassandraCluster;
+import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
+import org.apache.james.events.EventBusTestFixture;
+import org.apache.james.events.InVMEventBus;
+import org.apache.james.events.MemoryEventDeadLetters;
+import org.apache.james.events.delivery.InVmEventDelivery;
 import org.apache.james.mailbox.AttachmentContentLoader;
 import org.apache.james.mailbox.Authenticator;
 import org.apache.james.mailbox.Authorizator;
@@ -33,10 +38,6 @@ import org.apache.james.mailbox.cassandra.quota.CassandraGlobalMaxQuotaDao;
 import org.apache.james.mailbox.cassandra.quota.CassandraPerDomainMaxQuotaDao;
 import org.apache.james.mailbox.cassandra.quota.CassandraPerUserMaxQuotaDao;
 import org.apache.james.mailbox.cassandra.quota.CassandraPerUserMaxQuotaManager;
-import org.apache.james.mailbox.events.EventBusTestFixture;
-import org.apache.james.mailbox.events.InVMEventBus;
-import org.apache.james.mailbox.events.MemoryEventDeadLetters;
-import org.apache.james.mailbox.events.delivery.InVmEventDelivery;
 import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.quota.QuotaRootResolver;
 import org.apache.james.mailbox.store.MailboxManagerConfiguration;
@@ -64,18 +65,35 @@ public class CassandraMailboxManagerProvider {
 
     public static CassandraMailboxManager provideMailboxManager(CassandraCluster cassandra,
                                                                 PreDeletionHooks preDeletionHooks) {
+        return provideMailboxManager(cassandra, preDeletionHooks, CassandraConfiguration.DEFAULT_CONFIGURATION);
+    }
+
+    public static CassandraMailboxManager provideMailboxManager(CassandraCluster cassandra,
+                                                                PreDeletionHooks preDeletionHooks,
+                                                                CassandraConfiguration cassandraConfiguration) {
+        return provideMailboxManager(cassandra, preDeletionHooks, cassandraConfiguration,
+            MailboxManagerConfiguration.DEFAULT);
+    }
+
+    public static CassandraMailboxManager provideMailboxManager(CassandraCluster cassandra,
+                                                                PreDeletionHooks preDeletionHooks,
+                                                                CassandraConfiguration cassandraConfiguration,
+                                                                MailboxManagerConfiguration mailboxManagerConfiguration) {
         CassandraMessageId.Factory messageIdFactory = new CassandraMessageId.Factory();
 
         CassandraMailboxSessionMapperFactory mapperFactory = TestCassandraMailboxSessionMapperFactory.forTests(
             cassandra,
-            messageIdFactory);
+            messageIdFactory,
+            cassandraConfiguration);
 
-        return provideMailboxManager(cassandra.getConf(), preDeletionHooks, mapperFactory, messageIdFactory);
+        return provideMailboxManager(cassandra.getConf(), preDeletionHooks, mapperFactory,
+            mailboxManagerConfiguration, messageIdFactory);
     }
 
     private static CassandraMailboxManager provideMailboxManager(Session session,
                                                                 PreDeletionHooks preDeletionHooks,
                                                                 CassandraMailboxSessionMapperFactory mapperFactory,
+                                                                MailboxManagerConfiguration mailboxManagerConfiguration,
                                                                 MessageId.Factory messageIdFactory) {
         MailboxACLResolver aclResolver = new UnionMailboxACLResolver();
         GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
@@ -103,7 +121,7 @@ public class CassandraMailboxManagerProvider {
 
         CassandraMailboxManager manager = new CassandraMailboxManager(mapperFactory, sessionProvider, new NoMailboxPathLocker(),
             messageParser, messageIdFactory, eventBus, annotationManager, storeRightManager,
-            quotaComponents, index, MailboxManagerConfiguration.DEFAULT, preDeletionHooks);
+            quotaComponents, index, mailboxManagerConfiguration, preDeletionHooks);
 
         eventBus.register(quotaUpdater);
         eventBus.register(new MailboxAnnotationListener(mapperFactory, sessionProvider));

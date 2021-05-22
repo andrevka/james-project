@@ -25,11 +25,14 @@ import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
+
 import org.apache.james.MemoryJamesServerMain;
 import org.apache.james.mailets.configuration.CommonProcessors;
 import org.apache.james.mailets.configuration.MailetConfiguration;
 import org.apache.james.mailets.configuration.MailetContainer;
 import org.apache.james.mailets.configuration.ProcessorConfiguration;
+import org.apache.james.mailets.configuration.SmtpConfiguration;
 import org.apache.james.mailrepository.api.MailRepositoryUrl;
 import org.apache.james.modules.protocols.ImapGuiceProbe;
 import org.apache.james.modules.protocols.SmtpGuiceProbe;
@@ -42,28 +45,26 @@ import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.MailRepositoryProbeImpl;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
-public class SmtpAuthIntegrationTest {
+class SmtpAuthIntegrationTest {
     private static final String FROM = "fromuser@" + DEFAULT_DOMAIN;
     private static final MailRepositoryUrl DROPPED_MAILS = MailRepositoryUrl.from("memory://var/mail/dropped-mails/");
 
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
     private MailRepositoryProbeImpl repositoryProbe;
 
-    @Before
-    public void setup() throws Exception {
+    @BeforeEach
+    void setup(@TempDir File temporaryFolder) throws Exception {
         ProcessorConfiguration.Builder rootProcessor = ProcessorConfiguration.root()
             .addMailet(MailetConfiguration.builder()
                 .matcher(SMTPAuthSuccessful.class)
@@ -79,7 +80,10 @@ public class SmtpAuthIntegrationTest {
         jamesServer = TemporaryJamesServer.builder()
             .withBase(MemoryJamesServerMain.SMTP_AND_IMAP_MODULE)
             .withMailetContainer(mailetContainer)
-            .build(temporaryFolder.newFolder());
+            .withSmtpConfiguration(SmtpConfiguration.builder()
+                .doNotVerifyIdentity()
+                .build())
+            .build(temporaryFolder);
         jamesServer.start();
 
         DataProbe dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -96,13 +100,13 @@ public class SmtpAuthIntegrationTest {
                 .addProperty("repositoryPath", DROPPED_MAILS.asString()));
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
     }
 
     @Test
-    public void authenticatedSmtpSessionsShouldBeDelivered() throws Exception {
+    void authenticatedSmtpSessionsShouldBeDelivered() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
             .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, FROM);
@@ -114,7 +118,7 @@ public class SmtpAuthIntegrationTest {
     }
 
     @Test
-    public void nonAuthenticatedSmtpSessionsShouldNotBeDelivered() throws Exception {
+    void nonAuthenticatedSmtpSessionsShouldNotBeDelivered() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
             .sendMessage(FROM, FROM);
 
@@ -128,7 +132,7 @@ public class SmtpAuthIntegrationTest {
     }
 
     @Test
-    public void mixedCaseSenderMailShouldBeDelivered() throws Exception {
+    void mixedCaseSenderMailShouldBeDelivered() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
             .authenticate(FROM, PASSWORD)
             .sendMessage("FROMUSER@" + DEFAULT_DOMAIN, FROM);

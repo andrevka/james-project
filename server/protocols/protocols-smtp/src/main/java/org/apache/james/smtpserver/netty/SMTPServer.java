@@ -178,17 +178,17 @@ public class SMTPServer extends AbstractProtocolAsyncServer implements SMTPServe
 
             heloEhloEnforcement = configuration.getBoolean("heloEhloEnforcement", true);
 
-            if (authRequiredString.equals("true")) {
-                authRequired = AUTH_REQUIRED;
-            }
-
             // get the smtpGreeting
             smtpGreeting = configuration.getString("smtpGreeting", null);
 
             addressBracketsEnforcement = configuration.getBoolean("addressBracketsEnforcement", true);
 
-            verifyIdentity = configuration.getBoolean("verifyIdentity", true);
+            verifyIdentity = configuration.getBoolean("verifyIdentity", false);
 
+            if (authRequired == AUTH_DISABLED && verifyIdentity) {
+                throw new ConfigurationException(
+                    "SMTP configuration: 'verifyIdentity' can't be set to true if 'authRequired' is set to false.");
+            }
         }
     }
 

@@ -26,6 +26,7 @@ import static org.apache.james.mailets.configuration.Constants.RECIPIENT;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
 import java.util.Arrays;
 
 import javax.mail.internet.MimeMessage;
@@ -52,12 +53,12 @@ import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
 import org.apache.mailet.Mailet;
-import org.junit.After;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
-public class BounceIntegrationTest {
+class BounceIntegrationTest {
     public static final String POSTMASTER = "postmaster@" + DEFAULT_DOMAIN;
     public static final String POSTMASTER_PASSWORD = "postmasterSecret";
     public static final String SENDER = "bounce.receiver@" + DEFAULT_DOMAIN;
@@ -65,25 +66,24 @@ public class BounceIntegrationTest {
     public static final String OTHER = "other@" + DEFAULT_DOMAIN;
     public static final String OTHER_PASSWORD = "otherSecret";
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
     }
 
     @Test
-    public void dsnBounceMailetShouldDeliverBounce() throws Exception {
-        setup(DSNBounce.class);
+    void dsnBounceMailetShouldDeliverBounce(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, DSNBounce.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(SENDER, SENDER_PASSWORD)
             .sendMessage(SENDER, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -93,10 +93,11 @@ public class BounceIntegrationTest {
     }
 
     @Test
-    public void dsnBounceMailetShouldDeliverBounceToTheMailFromAddress() throws Exception {
-        setup(DSNBounce.class);
+    void dsnBounceMailetShouldDeliverBounceToTheMailFromAddress(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, DSNBounce.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(SENDER, SENDER_PASSWORD)
             .sendMessageWithHeaders(SENDER, RECIPIENT,
                 "From: " + OTHER + "\r\n" +
                     "To: " + RECIPIENT + "\r\n" +
@@ -112,10 +113,11 @@ public class BounceIntegrationTest {
     }
 
     @Test
-    public void dsnBounceMailetBouncedMailShouldBeAdressedToTheSenderInEnvelopeAndHeader() throws Exception {
-        setup(DSNBounce.class);
+    void dsnBounceMailetBouncedMailShouldBeAdressedToTheSenderInEnvelopeAndHeader(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, DSNBounce.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(SENDER, SENDER_PASSWORD)
             .sendMessageWithHeaders(SENDER, RECIPIENT,
                 "From: " + OTHER + "\r\n" +
                     "To: " + RECIPIENT + "\r\n" +
@@ -132,7 +134,7 @@ public class BounceIntegrationTest {
         assertThat(mimeMessage.getHeader("To")[0]).isEqualTo(SENDER);
     }
 
-    private void setup(Class<? extends Mailet> mailet, Pair<String, String>... additionalProperties) throws Exception {
+    private void setup(File tempDir, Class<? extends Mailet> mailet, Pair<String, String>... additionalProperties) throws Exception {
         MailetConfiguration.Builder mailetConfiguration = MailetConfiguration.builder()
                 .matcher(All.class)
                 .mailet(mailet)
@@ -145,23 +147,25 @@ public class BounceIntegrationTest {
                 .withBase(MemoryJamesServerMain.SMTP_AND_IMAP_MODULE)
                 .withMailetContainer(
                         generateMailetContainerConfiguration(mailetConfiguration))
-                .build(temporaryFolder.newFolder());
+                .build(tempDir);
         jamesServer.start();
 
         jamesServer.getProbe(DataProbeImpl.class)
                 .fluent()
                 .addDomain(DEFAULT_DOMAIN)
                 .addUser(RECIPIENT, PASSWORD)
+                .addUser("any@" + DEFAULT_DOMAIN, PASSWORD)
                 .addUser(SENDER, SENDER_PASSWORD)
                 .addUser(OTHER, OTHER_PASSWORD)
                 .addUser(POSTMASTER, POSTMASTER_PASSWORD);
     }
 
     @Test
-    public void bounceMailetShouldDeliverBounce() throws Exception {
-        setup(Bounce.class);
+    void bounceMailetShouldDeliverBounce(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, Bounce.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(SENDER, SENDER_PASSWORD)
             .sendMessage(SENDER, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -171,10 +175,11 @@ public class BounceIntegrationTest {
     }
 
     @Test
-    public void forwardMailetShouldDeliverBounce() throws Exception {
-        setup(Forward.class, Pair.of("forwardTo", SENDER));
+    void forwardMailetShouldDeliverBounce(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, Forward.class, Pair.of("forwardTo", SENDER));
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate("any@" + DEFAULT_DOMAIN, PASSWORD)
             .sendMessage("any@" + DEFAULT_DOMAIN, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -184,10 +189,11 @@ public class BounceIntegrationTest {
     }
 
     @Test
-    public void redirectMailetShouldDeliverBounce() throws Exception {
-        setup(Redirect.class, Pair.of("recipients", SENDER));
+    void redirectMailetShouldDeliverBounce(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, Redirect.class, Pair.of("recipients", SENDER));
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate("any@" + DEFAULT_DOMAIN, PASSWORD)
             .sendMessage("any@" + DEFAULT_DOMAIN, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -197,10 +203,11 @@ public class BounceIntegrationTest {
     }
 
     @Test
-    public void resendMailetShouldDeliverBounce() throws Exception {
-        setup(Resend.class, Pair.of("recipients", SENDER));
+    void resendMailetShouldDeliverBounce(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, Resend.class, Pair.of("recipients", SENDER));
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate("any@" + DEFAULT_DOMAIN, PASSWORD)
             .sendMessage("any@" + DEFAULT_DOMAIN, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -210,10 +217,11 @@ public class BounceIntegrationTest {
     }
 
     @Test
-    public void notifySenderMailetShouldDeliverBounce() throws Exception {
-        setup(NotifySender.class);
+    void notifySenderMailetShouldDeliverBounce(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, NotifySender.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(SENDER, SENDER_PASSWORD)
             .sendMessage(SENDER, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -223,10 +231,11 @@ public class BounceIntegrationTest {
     }
 
     @Test
-    public void notifyPostmasterMailetShouldDeliverBounce() throws Exception {
-        setup(NotifyPostmaster.class);
+    void notifyPostmasterMailetShouldDeliverBounce(@TempDir File temporaryFolder) throws Exception {
+        setup(temporaryFolder, NotifyPostmaster.class);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate("any@" + DEFAULT_DOMAIN, PASSWORD)
             .sendMessage("any@" + DEFAULT_DOMAIN, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())

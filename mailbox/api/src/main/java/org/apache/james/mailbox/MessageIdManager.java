@@ -38,6 +38,8 @@ import org.reactivestreams.Publisher;
 import com.google.common.collect.ImmutableList;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 public interface MessageIdManager {
     default Publisher<ComposedMessageIdWithMetaData> messageMetadata(MessageId id, MailboxSession session) {
@@ -49,6 +51,8 @@ public interface MessageIdManager {
     Set<MessageId> accessibleMessages(Collection<MessageId> messageIds, final MailboxSession mailboxSession) throws MailboxException;
 
     void setFlags(Flags newState, FlagsUpdateMode replace, MessageId messageId, List<MailboxId> mailboxIds, MailboxSession mailboxSession) throws MailboxException;
+
+    Publisher<Void> setFlagsReactive(Flags newState, FlagsUpdateMode replace, MessageId messageId, List<MailboxId> mailboxIds, MailboxSession mailboxSession);
 
     List<MessageResult> getMessages(Collection<MessageId> messageIds, FetchGroup minimal, MailboxSession mailboxSession) throws MailboxException;
 
@@ -62,16 +66,20 @@ public interface MessageIdManager {
 
     DeleteResult delete(MessageId messageId, List<MailboxId> mailboxIds, MailboxSession mailboxSession) throws MailboxException;
 
-    DeleteResult delete(List<MessageId> messageId, MailboxSession mailboxSession) throws MailboxException;
+    Publisher<DeleteResult> delete(List<MessageId> messageId, MailboxSession mailboxSession);
 
     void setInMailboxes(MessageId messageId, Collection<MailboxId> mailboxIds, MailboxSession mailboxSession) throws MailboxException;
+
+    Publisher<Void> setInMailboxesReactive(MessageId messageId, Collection<MailboxId> mailboxIds, MailboxSession mailboxSession);
 
     default List<MessageResult> getMessage(MessageId messageId, FetchGroup fetchGroup, MailboxSession mailboxSession) throws MailboxException {
         return getMessages(ImmutableList.of(messageId), fetchGroup, mailboxSession);
     }
 
-    default DeleteResult delete(MessageId messageId, MailboxSession mailboxSession) throws MailboxException {
-        return delete(ImmutableList.of(messageId), mailboxSession);
+    default DeleteResult delete(MessageId messageId, MailboxSession mailboxSession) {
+        return Mono.from(delete(ImmutableList.of(messageId), mailboxSession))
+            .subscribeOn(Schedulers.elastic())
+            .block();
     }
 
 }

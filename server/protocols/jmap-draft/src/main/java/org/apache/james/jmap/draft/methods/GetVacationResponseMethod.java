@@ -23,7 +23,7 @@ import static org.apache.james.jmap.http.LoggingHelper.jmapAction;
 
 import javax.inject.Inject;
 
-import org.apache.james.jmap.api.vacation.AccountId;
+import org.apache.james.jmap.api.model.AccountId;
 import org.apache.james.jmap.api.vacation.Vacation;
 import org.apache.james.jmap.api.vacation.VacationRepository;
 import org.apache.james.jmap.draft.model.GetVacationRequest;
@@ -72,7 +72,7 @@ public class GetVacationResponseMethod implements Method {
         Preconditions.checkNotNull(mailboxSession);
         Preconditions.checkArgument(request instanceof GetVacationRequest);
 
-        return Flux.from(metricFactory.decoratePublisherWithTimerMetricLogP99(JMAP_PREFIX + METHOD_NAME.getName(),
+        return Flux.from(metricFactory.decoratePublisherWithTimerMetric(JMAP_PREFIX + METHOD_NAME.getName(),
             process(mailboxSession)
                 .map(response -> JmapResponse.builder()
                     .methodCallId(methodCallId)

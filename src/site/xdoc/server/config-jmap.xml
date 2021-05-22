@@ -56,6 +56,29 @@
 
                     <dt><strong>jwt.publickeypem.url</strong></dt>
                     <dd>Optional. JWT tokens allows request to bypass authentication</dd>
+
+                    <dt><strong>url.prefix</strong></dt>
+                    <dd>Optional. Configuration urlPrefix for JMAP routes.</dd>
+                    <dd>Default value: http://localhost.</dd>
+
+                    <dt><strong>websocket.url.prefix</strong></dt>
+                    <dd>Optional. URL for JMAP WebSocket route</dd>
+                    <dd>Default value: ws://localhost</dd>
+
+                    <dt><strong>upload.max.size</strong></dt>
+                    <dd>Optional. Configuration max size Upload in new JMAP-RFC-8621.</dd>
+                    <dd>Default value: 30M. Supported units are B (bytes) K (KB) M (MB) G (GB).</dd>
+
+                    <dt><strong>view.email.query.enabled</strong></dt>
+                    <dd>Optional boolean. Defaults to false.</dd>
+                    <dd>Should simple Email/query be resolved against a Cassandra projection, or should we resolve them against ElasticSearch?
+                        This enables a higher resilience, but the projection needs to be correctly populated.</dd>
+
+                    <dt><strong>jmap.version.default</strong></dt>
+                    <dd>Optional string. Defaults to draft. Allowed values: draft, rfc-8621.</dd>
+                    <dd>Which version of the JMAP protocol should be served when none supplied in the Accept header.
+                    Defaults to draft for legacy reasons (avoid breaking changes) but setting the value to
+                    rfc-8621 allow compatibility with other third party apps.</dd>
                 </dl>
 
             </subsection>
@@ -83,6 +106,26 @@
                 <ul>
                     <li><b>JMAP-draft</b>: <em>Accept: application/json; jmapVersion=draft</em></li>
                     <li><b>JMAP-RFC-8621</b>: <em>Accept: application/json; jmapVersion=rfc-8621</em></li>
+                </ul>
+            </subsection>
+
+            <subsection name="Annotated specification">
+                <p>The <a href="https://github.com/apache/james-project/tree/master/server/protocols/jmap-rfc-8621/doc/specs/spec">annotated documentation</a>
+                presents the limits of the JMAP RFC-8621 implementation part of the Apache James project. We furthermore implement
+                    <a href="https://tools.ietf.org/html/rfc8887">JSON Meta Application Protocol (JMAP) Subprotocol for WebSocket</a>.</p>
+
+                <p>Some methods / types are not yet implemented, some implementations are naive, and the PUSH is not supported yet.</p>
+
+                <p>Users are invited to read these limitations before using actively the JMAP RFC-8621 implementation, and should ensure their
+                client applications only uses supported operations.</p>
+
+                <p>Contributions enhancing support are furthermore welcomed.</p>
+
+                <ul>The list of tested JMAP clients are:
+                    <li><a href="https://open-paas.org/">OpenPaaS</a> is actively using the draft version of the JMAP implementation. Migration to
+                    RFC-8621 is planned.</li>
+                    <li>Experiments had been run on top of <a href="https://github.com/iNPUTmice/lttrs-android">LTT.RS</a>. Version in the Accept
+                        headers needs to be explicitly set to `rfc-8621`. <a href="https://github.com/linagora/james-project/pull/4089">Read more</a>.</li>
                 </ul>
             </subsection>
         </section>

@@ -19,10 +19,12 @@
 
 package org.apache.james.mpt.imapmailbox.external.james;
 
-import static org.awaitility.Duration.ONE_HUNDRED_MILLISECONDS;
-import static org.awaitility.Duration.TEN_SECONDS;
+
+import static org.awaitility.Durations.ONE_HUNDRED_MILLISECONDS;
+import static org.awaitility.Durations.TEN_SECONDS;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Locale;
 
 import org.apache.commons.net.imap.IMAPClient;
@@ -32,10 +34,9 @@ import org.apache.james.mpt.imapmailbox.external.james.host.external.ExternalJam
 import org.apache.james.mpt.script.SimpleScriptedTestProtocol;
 import org.apache.james.utils.SMTPMessageSender;
 import org.awaitility.Awaitility;
-import org.awaitility.Duration;
 import org.awaitility.core.ConditionFactory;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public abstract class DeploymentValidation {
 
@@ -66,7 +67,7 @@ public abstract class DeploymentValidation {
         .await();
     protected static final ConditionFactory awaitAtMostTenSeconds = calmlyAwait.atMost(TEN_SECONDS);
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         system = createImapHostSystem();
         smtpSystem = createSmtpHostSystem();
@@ -89,7 +90,9 @@ public abstract class DeploymentValidation {
     @Test
     public void validateDeploymentWithMailsFromSmtp() throws Exception {
         SMTPMessageSender smtpMessageSender = new SMTPMessageSender("another-domain");
-        smtpSystem.connect(smtpMessageSender).sendMessage("test@" + DOMAIN, USER_ADDRESS);
+        smtpSystem.connect(smtpMessageSender)
+            .authenticate(USER_ADDRESS, PASSWORD)
+            .sendMessage(USER_ADDRESS, USER_ADDRESS);
         imapClient.connect(getConfiguration().getAddress(), getConfiguration().getImapPort().getValue());
         imapClient.login(USER_ADDRESS, PASSWORD);
         awaitAtMostTenSeconds.until(this::checkMailDelivery);

@@ -19,10 +19,13 @@
 
 package org.apache.james.mpt.session;
 
+import static java.nio.charset.StandardCharsets.US_ASCII;
+import static org.awaitility.Durations.ONE_MINUTE;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-import java.nio.charset.Charset;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.NotImplementedException;
@@ -30,7 +33,6 @@ import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.james.mpt.api.Monitor;
 import org.apache.james.mpt.api.Session;
 import org.awaitility.Awaitility;
-import org.awaitility.Duration;
 
 public final class ExternalSession implements Session {
 
@@ -41,8 +43,6 @@ public final class ExternalSession implements Session {
     private final Monitor monitor;
 
     private final ByteBuffer readBuffer;
-
-    private final Charset ascii;
 
     private final ByteBuffer lineEndBuffer;
 
@@ -59,7 +59,6 @@ public final class ExternalSession implements Session {
         this.socket = socket;
         this.monitor = monitor;
         readBuffer = ByteBuffer.allocateDirect(2048);
-        ascii = Charset.forName("US-ASCII");
         lineEndBuffer = ByteBuffer.wrap(CRLF);
         this.shabang = shabang;
     }
@@ -124,8 +123,8 @@ public final class ExternalSession implements Session {
     private boolean tryReadFromSocket() throws IOException, InterruptedException {
         final MutableInt status = new MutableInt(0);
         Awaitility
-            .waitAtMost(Duration.ONE_MINUTE)
-            .pollDelay(new Duration(10, TimeUnit.MILLISECONDS))
+            .waitAtMost(ONE_MINUTE)
+            .pollDelay(Duration.ofMillis(10))
             .until(() -> {
                 int read = socket.read(readBuffer);
                 status.setValue(read);
@@ -161,7 +160,7 @@ public final class ExternalSession implements Session {
     public void writeLine(String line) throws Exception {
         monitor.note("-> " + line);
         monitor.debug("[Writing line]");
-        ByteBuffer writeBuffer = ascii.encode(line);
+        ByteBuffer writeBuffer = US_ASCII.encode(line);
         while (writeBuffer.hasRemaining()) {
             socket.write(writeBuffer);
         }
@@ -187,7 +186,7 @@ public final class ExternalSession implements Session {
         final String TAB = " ";
 
         return "External ( " + "socket = " + this.socket + TAB + "monitor = " + this.monitor + TAB
-                + "readBuffer = " + this.readBuffer + TAB + "ascii = " + this.ascii + TAB + "lineEndBuffer = "
+                + "readBuffer = " + this.readBuffer + TAB + "lineEndBuffer = "
                 + this.lineEndBuffer + TAB + "first = " + this.first + TAB + "shabang = " + this.shabang + TAB + " )";
     }
 

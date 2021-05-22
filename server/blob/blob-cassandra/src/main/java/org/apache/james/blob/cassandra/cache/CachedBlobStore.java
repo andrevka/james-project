@@ -40,7 +40,9 @@ import org.apache.james.metrics.api.Metric;
 import org.apache.james.metrics.api.MetricFactory;
 import org.reactivestreams.Publisher;
 
+import com.github.fge.lambdas.Throwing;
 import com.google.common.base.Preconditions;
+import com.google.common.io.ByteSource;
 
 import reactor.core.publisher.Mono;
 
@@ -132,7 +134,10 @@ public class CachedBlobStore implements BlobStore {
     }
 
     @Override
-    public InputStream read(BucketName bucketName, BlobId blobId) throws ObjectStoreIOException, ObjectNotFoundException {
+    public InputStream read(BucketName bucketName, BlobId blobId, StoragePolicy storagePolicy) throws ObjectStoreIOException, ObjectNotFoundException {
+        if (storagePolicy == LOW_COST) {
+            return backend.read(bucketName, blobId);
+        }
         return Mono.just(bucketName)
             .filter(getDefaultBucketName()::equals)
             .flatMap(defaultBucket -> readInDefaultBucket(bucketName, blobId))
@@ -152,11 +157,24 @@ public class CachedBlobStore implements BlobStore {
     }
 
     @Override
-    public Mono<byte[]> readBytes(BucketName bucketName, BlobId blobId) {
+    public Mono<byte[]> readBytes(BucketName bucketName, BlobId blobId, StoragePolicy storagePolicy) {
+        if (storagePolicy == LOW_COST) {
+            return readBytesFromBackend(bucketName, blobId);
+        }
         if (getDefaultBucketName().equals(bucketName)) {
             return readBytesInDefaultBucket(bucketName, blobId);
         }
         return readBytesFromBackend(bucketName, blobId);
+    }
+
+    @Override
+    public Publisher<byte[]> readBytes(BucketName bucketName, BlobId blobId) {
+        return readBytes(bucketName, blobId, LOW_COST);
+    }
+
+    @Override
+    public InputStream read(BucketName bucketName, BlobId blobId) {
+        return read(bucketName, blobId, LOW_COST);
     }
 
     private Mono<byte[]> readBytesInDefaultBucket(BucketName bucketName, BlobId blobId) {
@@ -195,17 +213,41 @@ public class CachedBlobStore implements BlobStore {
     }
 
     @Override
+    public Publisher<BlobId> save(BucketName bucketName, ByteSource byteSource, StoragePolicy storagePolicy) {
+        Preconditions.checkNotNull(byteSource, "ByteSource must not be null");
+
+        if (isAbleToCache(bucketName, storagePolicy)) {
+            return saveInCache(bucketName, byteSource, storagePolicy);
+        }
+
+        return backend.save(bucketName, byteSource, storagePolicy);
+    }
+
+    private Mono<BlobId> saveInCache(BucketName bucketName, ByteSource byteSource, StoragePolicy storagePolicy) {
+        return Mono.from(backend.save(bucketName, byteSource, storagePolicy))
+            .flatMap(Throwing.function(blobId ->
+                ReadAheadInputStream.eager().of(byteSource.openStream())
+                    .length(sizeThresholdInBytes)
+                    .firstBytes
+                    .map(bytes -> Mono.from(cache.cache(blobId, bytes)).thenReturn(blobId))
+                    .orElse(Mono.just(blobId))));
+    }
+
+    @Override
     public BucketName getDefaultBucketName() {
         return backend.getDefaultBucketName();
     }
 
     @Override
-    public Mono<Void> delete(BucketName bucketName, BlobId blobId) {
+    public Mono<Boolean> delete(BucketName bucketName, BlobId blobId) {
         return Mono.from(backend.delete(bucketName, blobId))
-            .then(Mono.just(bucketName)
-                .filter(backend.getDefaultBucketName()::equals)
-                .flatMap(ignored -> Mono.from(cache.remove(blobId)))
-                .then());
+            .flatMap(deleted -> {
+                if (backend.getDefaultBucketName().equals(bucketName)
+                      && deleted) {
+                    return Mono.from(cache.remove(blobId)).thenReturn(deleted);
+                }
+                return Mono.just(deleted);
+            });
     }
 
     @Override

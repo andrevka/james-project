@@ -26,7 +26,6 @@ import static io.restassured.http.ContentType.JSON;
 import static org.apache.james.webadmin.Constants.SEPARATOR;
 import static org.apache.james.webadmin.routes.UserMailboxesRoutes.USERS_BASE;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.eclipse.jetty.http.HttpStatus.BAD_REQUEST_400;
 import static org.eclipse.jetty.http.HttpStatus.INTERNAL_SERVER_ERROR_500;
 import static org.eclipse.jetty.http.HttpStatus.NOT_FOUND_404;
@@ -52,11 +51,10 @@ import java.util.List;
 import java.util.Map;
 
 import javax.mail.Flags;
-import javax.mail.util.SharedByteArrayInputStream;
 
-import org.apache.james.backends.es.DockerElasticSearchExtension;
-import org.apache.james.backends.es.ElasticSearchIndexer;
-import org.apache.james.backends.es.ReactorElasticSearchClient;
+import org.apache.james.backends.es.v7.DockerElasticSearchExtension;
+import org.apache.james.backends.es.v7.ElasticSearchIndexer;
+import org.apache.james.backends.es.v7.ReactorElasticSearchClient;
 import org.apache.james.core.Username;
 import org.apache.james.json.DTOConverter;
 import org.apache.james.mailbox.MailboxManager;
@@ -65,15 +63,15 @@ import org.apache.james.mailbox.MailboxSessionUtil;
 import org.apache.james.mailbox.MessageIdManager;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.MessageUid;
-import org.apache.james.mailbox.elasticsearch.IndexAttachments;
-import org.apache.james.mailbox.elasticsearch.MailboxElasticSearchConstants;
-import org.apache.james.mailbox.elasticsearch.MailboxIdRoutingKeyFactory;
-import org.apache.james.mailbox.elasticsearch.MailboxIndexCreationUtil;
-import org.apache.james.mailbox.elasticsearch.events.ElasticSearchListeningMessageSearchIndex;
-import org.apache.james.mailbox.elasticsearch.json.MessageToElasticSearchJson;
-import org.apache.james.mailbox.elasticsearch.query.CriterionConverter;
-import org.apache.james.mailbox.elasticsearch.query.QueryConverter;
-import org.apache.james.mailbox.elasticsearch.search.ElasticSearchSearcher;
+import org.apache.james.mailbox.elasticsearch.v7.IndexAttachments;
+import org.apache.james.mailbox.elasticsearch.v7.MailboxElasticSearchConstants;
+import org.apache.james.mailbox.elasticsearch.v7.MailboxIdRoutingKeyFactory;
+import org.apache.james.mailbox.elasticsearch.v7.MailboxIndexCreationUtil;
+import org.apache.james.mailbox.elasticsearch.v7.events.ElasticSearchListeningMessageSearchIndex;
+import org.apache.james.mailbox.elasticsearch.v7.json.MessageToElasticSearchJson;
+import org.apache.james.mailbox.elasticsearch.v7.query.CriterionConverter;
+import org.apache.james.mailbox.elasticsearch.v7.query.QueryConverter;
+import org.apache.james.mailbox.elasticsearch.v7.search.ElasticSearchSearcher;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.MailboxExistsException;
 import org.apache.james.mailbox.exception.MailboxNotFoundException;
@@ -82,6 +80,7 @@ import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxManager;
 import org.apache.james.mailbox.inmemory.InMemoryMessageId;
 import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
+import org.apache.james.mailbox.model.ByteContent;
 import org.apache.james.mailbox.model.ComposedMessageId;
 import org.apache.james.mailbox.model.FetchGroup;
 import org.apache.james.mailbox.model.Mailbox;
@@ -110,7 +109,6 @@ import org.apache.james.webadmin.utils.JsonTransformer;
 import org.apache.mailbox.tools.indexer.ReIndexerImpl;
 import org.apache.mailbox.tools.indexer.ReIndexerPerformer;
 import org.apache.mailbox.tools.indexer.UserReindexingTask;
-import org.elasticsearch.index.IndexNotFoundException;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -141,7 +139,7 @@ class UserMailboxesRoutesTest {
     private static final Username USERNAME = Username.of("username");
     private static final String MAILBOX_NAME = "myMailboxName";
     private static final String MAILBOX_NAME_WITH_DOTS = "my..MailboxName";
-    private static final String INVALID_MAILBOX_NAME = "myMailboxName#";
+    private static final String INVALID_MAILBOX_NAME = "#myMailboxName";
     private static final MailboxPath INBOX = MailboxPath.inbox(USERNAME);
     private static final String ERROR_TYPE_NOTFOUND = "notFound";
     
@@ -332,7 +330,7 @@ class UserMailboxesRoutesTest {
                 .containsEntry("statusCode", BAD_REQUEST_400)
                 .containsEntry("type", "InvalidArgument")
                 .containsEntry("message", "Attempt to create an invalid mailbox")
-                .containsEntry("details", "#private:username:myMailboxName# contains one of the forbidden characters %*#");
+                .containsEntry("details", "#private:username:#myMailboxName contains one of the forbidden characters %* or starts with #");
         }
 
         @Test
@@ -372,7 +370,7 @@ class UserMailboxesRoutesTest {
                 .containsEntry("statusCode", BAD_REQUEST_400)
                 .containsEntry("type", "InvalidArgument")
                 .containsEntry("message", "Attempt to test existence of an invalid mailbox")
-                .containsEntry("details", "#private:username:myMailboxName* contains one of the forbidden characters %*#");
+                .containsEntry("details", "#private:username:myMailboxName* contains one of the forbidden characters %* or starts with #");
         }
 
         @Test
@@ -427,7 +425,7 @@ class UserMailboxesRoutesTest {
                 .containsEntry("statusCode", BAD_REQUEST_400)
                 .containsEntry("type", "InvalidArgument")
                 .containsEntry("message", "Attempt to test existence of an invalid mailbox")
-                .containsEntry("details", "#private:username:myMailboxName% contains one of the forbidden characters %*#");
+                .containsEntry("details", "#private:username:myMailboxName% contains one of the forbidden characters %* or starts with #");
         }
 
         @Test
@@ -469,7 +467,7 @@ class UserMailboxesRoutesTest {
         @Test
         void getShouldReturnUserErrorWithInvalidSharpMailboxName() throws Exception {
             Map<String, Object> errors = when()
-                .get(MAILBOX_NAME + "#")
+                .get("#" + MAILBOX_NAME)
             .then()
                 .statusCode(BAD_REQUEST_400)
                 .contentType(JSON)
@@ -482,13 +480,24 @@ class UserMailboxesRoutesTest {
                 .containsEntry("statusCode", BAD_REQUEST_400)
                 .containsEntry("type", "InvalidArgument")
                 .containsEntry("message", "Attempt to test existence of an invalid mailbox")
-                .containsEntry("details", "#private:username:myMailboxName# contains one of the forbidden characters %*#");
+                .containsEntry("details", "#private:username:#myMailboxName contains one of the forbidden characters %* or starts with #");
+        }
+
+        @Test
+        void getShouldReturnOkWhenSharpInTheMiddleOfTheName() throws Exception {
+            with()
+                .put("a#b");
+
+            when()
+                .get("a#b")
+            .then()
+                .statusCode(NO_CONTENT_204);
         }
 
         @Test
         void putShouldReturnUserErrorWithInvalidSharpMailboxName() throws Exception {
             Map<String, Object> errors = when()
-                .put(MAILBOX_NAME + "#")
+                .put("#" + MAILBOX_NAME)
             .then()
                 .statusCode(BAD_REQUEST_400)
                 .contentType(JSON)
@@ -504,9 +513,17 @@ class UserMailboxesRoutesTest {
         }
 
         @Test
+        void putShouldAcceptMailboxNamesContainingSharp() throws Exception {
+            when()
+                .put("a#b")
+            .then()
+                .statusCode(NO_CONTENT_204);
+        }
+
+        @Test
         void deleteShouldReturnUserErrorWithInvalidSharpMailboxName() throws Exception {
             Map<String, Object> errors = when()
-                .put(MAILBOX_NAME + "#")
+                .put("#" + MAILBOX_NAME)
             .then()
                 .statusCode(BAD_REQUEST_400)
                 .contentType(JSON)
@@ -519,6 +536,14 @@ class UserMailboxesRoutesTest {
                 .containsEntry("statusCode", BAD_REQUEST_400)
                 .containsEntry("type", "InvalidArgument")
                 .containsEntry("message", "Attempt to create an invalid mailbox");
+        }
+
+        @Test
+        void deleteShouldAcceptSharpInTheMiddleOfTheName() throws Exception {
+            when()
+                .put("a#b")
+            .then()
+                .statusCode(NO_CONTENT_204);
         }
 
         @Test
@@ -1158,8 +1183,7 @@ class UserMailboxesRoutesTest {
                 .listeningSearchIndex(preInstanciationStage -> new ElasticSearchListeningMessageSearchIndex(
                     preInstanciationStage.getMapperFactory(),
                     new ElasticSearchIndexer(client,
-                        MailboxElasticSearchConstants.DEFAULT_MAILBOX_WRITE_ALIAS,
-                        BATCH_SIZE),
+                        MailboxElasticSearchConstants.DEFAULT_MAILBOX_WRITE_ALIAS),
                     new ElasticSearchSearcher(client, new QueryConverter(new CriterionConverter()), SEARCH_SIZE,
                         new InMemoryId.Factory(), messageIdFactory,
                         MailboxElasticSearchConstants.DEFAULT_MAILBOX_READ_ALIAS, routingKeyFactory),
@@ -1524,12 +1548,12 @@ class UserMailboxesRoutesTest {
                 SimpleMailboxMessage message = SimpleMailboxMessage.builder()
                     .messageId(InMemoryMessageId.of(42L))
                     .uid(uid)
-                    .content(new SharedByteArrayInputStream(content))
+                    .content(new ByteContent(content))
                     .size(content.length)
                     .internalDate(new Date(ZonedDateTime.parse("2018-02-15T15:54:02Z").toEpochSecond()))
                     .bodyStartOctet(0)
                     .flags(new Flags("myFlags"))
-                    .propertyBuilder(new PropertyBuilder())
+                    .properties(new PropertyBuilder())
                     .mailboxId(mailboxId)
                     .build();
 
@@ -1547,8 +1571,8 @@ class UserMailboxesRoutesTest {
                 .when()
                     .get(taskId + "/await");
 
-                assertThatThrownBy(() -> searchIndex.retrieveIndexedFlags(mailbox, uid).block())
-                    .isInstanceOf(IndexNotFoundException.class);
+                assertThat(searchIndex.retrieveIndexedFlags(mailbox, uid).blockOptional())
+                    .isEmpty();
             }
         }
 

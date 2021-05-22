@@ -31,12 +31,12 @@ import static org.apache.james.jmap.JMAPTestingConstants.DOMAIN;
 import static org.apache.james.jmap.JMAPTestingConstants.FIRST_MAILBOX;
 import static org.apache.james.jmap.JMAPTestingConstants.NAME;
 import static org.apache.james.jmap.JMAPTestingConstants.SECOND_MAILBOX;
+import static org.apache.james.jmap.JMAPTestingConstants.calmlyAwait;
 import static org.apache.james.jmap.JMAPTestingConstants.jmapRequestSpecBuilder;
 import static org.apache.james.jmap.JmapURIBuilder.baseUri;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasItem;
@@ -342,8 +342,8 @@ public abstract class GetMailboxesMethodTest {
             .statusCode(200)
             .body(NAME, equalTo("error"))
             .body(ARGUMENTS + ".type", equalTo("invalidArguments"))
-            .body(ARGUMENTS + ".description", containsString("Cannot deserialize instance of `java.util.ArrayList` out of VALUE_TRUE token"))
-            .body(ARGUMENTS + ".description", containsString("{\"ids\":true}"));
+            .body(ARGUMENTS + ".description", containsString("Cannot deserialize value of type `java.util.ArrayList<org.apache.james.mailbox.model.MailboxId>` from Boolean value (token `JsonToken.VALUE_TRUE`)"))
+            .body(ARGUMENTS + ".description", containsString("(through reference chain: org.apache.james.jmap.draft.model.GetMailboxesRequest$Builder[\"ids\"])"));
     }
 
     @Category(BasicFeature.class)
@@ -444,7 +444,7 @@ public abstract class GetMailboxesMethodTest {
         .then()
             .statusCode(200)
             .body(NAME, equalTo("mailboxes"))
-            .body(FIRST_MAILBOX + ".id", not(is(emptyOrNullString())))
+            .body(FIRST_MAILBOX + ".id", not(is(nullValue())))
             .body(FIRST_MAILBOX + ".name", nullValue())
             .body(FIRST_MAILBOX + ".parentId", nullValue())
             .body(FIRST_MAILBOX + ".role", nullValue())
@@ -473,7 +473,7 @@ public abstract class GetMailboxesMethodTest {
         .then()
             .statusCode(200)
             .body(NAME, equalTo("mailboxes"))
-            .body(FIRST_MAILBOX + ".id", not(is(emptyOrNullString())))
+            .body(FIRST_MAILBOX + ".id", not(is(nullValue())))
             .body(FIRST_MAILBOX + ".name", nullValue());
     }
 
@@ -489,7 +489,7 @@ public abstract class GetMailboxesMethodTest {
         .then()
             .statusCode(200)
             .body(NAME, equalTo("mailboxes"))
-            .body(FIRST_MAILBOX + ".id", not(is(emptyOrNullString())))
+            .body(FIRST_MAILBOX + ".id", not(is(nullValue())))
             .body(FIRST_MAILBOX + ".name", nullValue());
     }
 
@@ -736,7 +736,7 @@ public abstract class GetMailboxesMethodTest {
             .body(NAME, equalTo("mailboxes"))
             .body(ARGUMENTS + ".list", hasSize(1))
             .body(FIRST_MAILBOX + ".namespace.type", equalTo(MailboxNamespace.Type.Personal.toString()))
-            .body(FIRST_MAILBOX + ".namespace.owner", is(emptyOrNullString()));
+            .body(FIRST_MAILBOX + ".namespace.owner", is(nullValue()));
     }
 
 
@@ -900,16 +900,17 @@ public abstract class GetMailboxesMethodTest {
 
         mailboxProbe.appendMessage(ALICE.asString(), MailboxPath.forUser(ALICE, DefaultMailboxes.INBOX), AppendCommand.from(message));
 
-        given()
-            .header("Authorization", accessToken.asString())
-            .body("[[\"getMailboxes\", {\"ids\": [\"" + mailboxId + "\"]}, \"#0\"]]")
-        .when()
-            .post("/jmap")
-        .then()
-            .statusCode(200)
-            .body(NAME, equalTo("mailboxes"))
-            .body(ARGUMENTS + ".list", hasSize(1))
-            .body(FIRST_MAILBOX + ".quotas['#private&alice@domain.tld']['STORAGE'].used", equalTo(85))
-            .body(FIRST_MAILBOX + ".quotas['#private&alice@domain.tld']['MESSAGE'].used", equalTo(1));
+        calmlyAwait.untilAsserted(() ->
+            given()
+                .header("Authorization", accessToken.asString())
+                .body("[[\"getMailboxes\", {\"ids\": [\"" + mailboxId + "\"]}, \"#0\"]]")
+            .when()
+                .post("/jmap")
+            .then()
+                .statusCode(200)
+                .body(NAME, equalTo("mailboxes"))
+                .body(ARGUMENTS + ".list", hasSize(1))
+                .body(FIRST_MAILBOX + ".quotas['#private&alice@domain.tld']['STORAGE'].used", equalTo(85))
+                .body(FIRST_MAILBOX + ".quotas['#private&alice@domain.tld']['MESSAGE'].used", equalTo(1)));
     }
 }

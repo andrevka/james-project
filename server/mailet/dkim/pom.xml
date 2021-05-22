@@ -23,7 +23,7 @@
     <parent>
         <groupId>org.apache.james</groupId>
         <artifactId>james-server</artifactId>
-        <version>3.6.0-SNAPSHOT</version>
+        <version>3.7.0-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -51,6 +51,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>${james.groupId}</groupId>
+            <artifactId>testing-base</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.apache.james.jdkim</groupId>
             <artifactId>apache-jdkim-library</artifactId>
             <version>${jdkim.version}</version>
@@ -60,11 +65,11 @@
                     <artifactId>apache-mailet</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>${james.groupId}</groupId>
+                    <groupId>org.apache.james</groupId>
                     <artifactId>apache-mime4j-core</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>${james.groupId}</groupId>
+                    <groupId>org.apache.james</groupId>
                     <artifactId>apache-mime4j-dom</artifactId>
                 </exclusion>
                 <exclusion>
@@ -89,11 +94,11 @@
                     <artifactId>apache-mailet</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>${james.groupId}</groupId>
+                    <groupId>org.apache.james</groupId>
                     <artifactId>apache-mime4j-core</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>${james.groupId}</groupId>
+                    <groupId>org.apache.james</groupId>
                     <artifactId>apache-mime4j-dom</artifactId>
                 </exclusion>
                 <exclusion>
@@ -101,11 +106,6 @@
                     <artifactId>log4j</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>${james.groupId}</groupId>
-            <artifactId>testing-base</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>

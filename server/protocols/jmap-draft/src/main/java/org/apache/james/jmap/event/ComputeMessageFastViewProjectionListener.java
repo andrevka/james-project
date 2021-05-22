@@ -19,19 +19,22 @@
 
 package org.apache.james.jmap.event;
 
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
+
 import java.io.IOException;
 
 import javax.inject.Inject;
 
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.james.events.Event;
+import org.apache.james.events.EventListener;
+import org.apache.james.events.Group;
 import org.apache.james.jmap.api.projections.MessageFastViewPrecomputedProperties;
 import org.apache.james.jmap.api.projections.MessageFastViewProjection;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageIdManager;
 import org.apache.james.mailbox.SessionProvider;
-import org.apache.james.mailbox.events.Event;
-import org.apache.james.mailbox.events.Group;
-import org.apache.james.mailbox.events.MailboxListener;
+import org.apache.james.mailbox.events.MailboxEvents.Added;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.FetchGroup;
 import org.apache.james.mailbox.model.MessageResult;
@@ -43,7 +46,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-public class ComputeMessageFastViewProjectionListener implements MailboxListener.ReactiveGroupMailboxListener {
+public class ComputeMessageFastViewProjectionListener implements EventListener.ReactiveGroupEventListener {
     public static class ComputeMessageFastViewProjectionListenerGroup extends Group {
 
     }
@@ -79,13 +82,18 @@ public class ComputeMessageFastViewProjectionListener implements MailboxListener
         return Mono.empty();
     }
 
+    @Override
+    public boolean isHandling(Event event) {
+        return event instanceof Added;
+    }
+
     private Mono<Void> handleAddedEvent(Added addedEvent, MailboxSession session) {
         return Flux.from(messageIdManager.getMessagesReactive(addedEvent.getMessageIds(), FetchGroup.FULL_CONTENT, session))
             .flatMap(Throwing.function(messageResult -> Mono.fromCallable(
                 () -> Pair.of(messageResult.getMessageId(), computeFastViewPrecomputedProperties(messageResult)))
-                    .subscribeOn(Schedulers.parallel())))
+                    .subscribeOn(Schedulers.parallel())), DEFAULT_CONCURRENCY)
             .publishOn(Schedulers.elastic())
-            .flatMap(message -> messageFastViewProjection.store(message.getKey(), message.getValue()))
+            .flatMap(message -> messageFastViewProjection.store(message.getKey(), message.getValue()), DEFAULT_CONCURRENCY)
             .then();
     }
 

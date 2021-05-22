@@ -105,7 +105,7 @@ public abstract class AbstractConfigurableAsyncServer extends AbstractAsyncServe
 
     private String secret;
 
-    private Encryption encryption;
+    protected Encryption encryption;
 
     protected String jmxName;
 
@@ -263,7 +263,7 @@ public abstract class AbstractConfigurableAsyncServer extends AbstractAsyncServe
 
             buildSSLContext();
             preInit();
-            executionHandler = createExecutionHander();
+            executionHandler = createExecutionHandler();
             frameHandlerFactory = createFrameHandlerFactory();
             bind();
             port = retrieveFirstBindedPort();
@@ -386,8 +386,7 @@ public abstract class AbstractConfigurableAsyncServer extends AbstractAsyncServe
      * 
      * @throws Exception
      */
-
-    private void buildSSLContext() throws Exception {
+    protected void buildSSLContext() throws Exception {
         if (useStartTLS || useSSL) {
             FileInputStream fis = null;
             try {
@@ -431,7 +430,7 @@ public abstract class AbstractConfigurableAsyncServer extends AbstractAsyncServe
      */
     @Override
     public String getSocketType() {
-        if (encryption != null && !encryption.isStartTLS()) {
+        if (getEncryption() != null && !getEncryption().isStartTLS()) {
             return "secure";
         }
         return "plain";
@@ -439,7 +438,7 @@ public abstract class AbstractConfigurableAsyncServer extends AbstractAsyncServe
 
     @Override
     public boolean getStartTLSSupported() {
-        return encryption != null && encryption.isStartTLS();
+        return getEncryption() != null && getEncryption().isStartTLS();
     }
 
     @Override
@@ -535,14 +534,14 @@ public abstract class AbstractConfigurableAsyncServer extends AbstractAsyncServe
      * 
      * @return ehandler
      */
-    protected ExecutionHandler createExecutionHander() {
+    protected ExecutionHandler createExecutionHandler() {
         return new ExecutionHandler(new JMXEnabledOrderedMemoryAwareThreadPoolExecutor(maxExecutorThreads, 0, 0, getThreadPoolJMXPath(), getDefaultJMXName() + "-executor"));
     }
 
     protected abstract ChannelHandlerFactory createFrameHandlerFactory();
 
     /**
-     * Return the {@link ExecutionHandler} or null if non should be used. Be sure you call {@link #createExecutionHander()} before
+     * Return the {@link ExecutionHandler} or null if non should be used. Be sure you call {@link #createExecutionHandler()} before
      * 
      * @return ehandler
      */
@@ -562,16 +561,16 @@ public abstract class AbstractConfigurableAsyncServer extends AbstractAsyncServe
             enabledCipherSuites, getExecutionHandler(), getFrameHandlerFactory(), timer) {
             @Override
             protected SSLContext getSSLContext() {
-                if (encryption == null) {
+                if (getEncryption() == null) {
                     return null;
                 } else {
-                    return encryption.getContext();
+                    return getEncryption().getContext();
                 }
             }
 
             @Override
             protected boolean isSSLSocket() {
-                return encryption != null && !encryption.isStartTLS();
+                return getEncryption() != null && !getEncryption().isStartTLS();
             }
 
 

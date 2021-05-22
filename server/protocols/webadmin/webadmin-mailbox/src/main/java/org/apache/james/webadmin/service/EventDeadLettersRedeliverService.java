@@ -19,12 +19,14 @@
 
 package org.apache.james.webadmin.service;
 
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
+
 import javax.inject.Inject;
 
-import org.apache.james.mailbox.events.Event;
-import org.apache.james.mailbox.events.EventBus;
-import org.apache.james.mailbox.events.EventDeadLetters;
-import org.apache.james.mailbox.events.Group;
+import org.apache.james.events.Event;
+import org.apache.james.events.EventBus;
+import org.apache.james.events.EventDeadLetters;
+import org.apache.james.events.Group;
 import org.apache.james.task.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,7 +52,7 @@ public class EventDeadLettersRedeliverService {
 
     Flux<Task.Result> redeliverEvents(EventRetriever eventRetriever) {
         return eventRetriever.retrieveEvents(deadLetters)
-            .flatMap(entry -> redeliverGroupEvents(entry.getT1(), entry.getT2(), entry.getT3()));
+            .flatMap(entry -> redeliverGroupEvents(entry.getT1(), entry.getT2(), entry.getT3()), DEFAULT_CONCURRENCY);
     }
 
     private Mono<Task.Result> redeliverGroupEvents(Group group, Event event, EventDeadLetters.InsertionId insertionId) {

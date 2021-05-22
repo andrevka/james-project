@@ -28,10 +28,11 @@ import org.apache.james.core.Username
 import org.apache.james.core.quota.{QuotaLimitValue, QuotaUsageValue}
 import org.apache.james.event.json.DTOs.SystemFlag.SystemFlag
 import org.apache.james.mailbox.acl.{ACLDiff => JavaACLDiff}
-import org.apache.james.mailbox.model.{MailboxACL, MessageId, MailboxPath => JavaMailboxPath, MessageMetaData => JavaMessageMetaData, Quota => JavaQuota, UpdatedFlags => JavaUpdatedFlags}
+import org.apache.james.mailbox.model.{MessageId, MailboxACL => JavaMailboxACL, MailboxPath => JavaMailboxPath, MessageMetaData => JavaMessageMetaData, Quota => JavaQuota, UpdatedFlags => JavaUpdatedFlags}
 import org.apache.james.mailbox.{FlagsBuilder, MessageUid, ModSeq}
 
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters._
 
 object DTOs {
 
@@ -48,6 +49,11 @@ object DTOs {
       javaMailboxPath.getName)
   }
 
+  object MailboxACL {
+    def fromJava(javaMailboxACL: JavaMailboxACL): Option[MailboxACL] =
+      Option(javaMailboxACL).map(mailboxACL => MailboxACL(mailboxACL.getEntries.asScala.toMap))
+  }
+
   object Quota {
     def toScala[T <: QuotaLimitValue[T], U <: QuotaUsageValue[U, T]](java: JavaQuota[T, U]): Quota[T, U] = Quota(
       used = java.getUsed,
@@ -55,13 +61,17 @@ object DTOs {
       limits = java.getLimitByScope.asScala.toMap)
   }
 
-  case class ACLDiff(oldACL: Map[MailboxACL.EntryKey, MailboxACL.Rfc4314Rights],
-                     newACL: Map[MailboxACL.EntryKey, MailboxACL.Rfc4314Rights]) {
-    def toJava: JavaACLDiff = new JavaACLDiff(new MailboxACL(oldACL.asJava), new MailboxACL(newACL.asJava))
+  case class ACLDiff(oldACL: Map[JavaMailboxACL.EntryKey, JavaMailboxACL.Rfc4314Rights],
+                     newACL: Map[JavaMailboxACL.EntryKey, JavaMailboxACL.Rfc4314Rights]) {
+    def toJava: JavaACLDiff = new JavaACLDiff(new JavaMailboxACL(oldACL.asJava), new JavaMailboxACL(newACL.asJava))
   }
 
   case class MailboxPath(namespace: Option[String], user: Option[Username], name: String) {
     def toJava: JavaMailboxPath = new JavaMailboxPath(namespace.orNull, user.orNull, name)
+  }
+
+  case class MailboxACL(entries: Map[JavaMailboxACL.EntryKey, JavaMailboxACL.Rfc4314Rights]) {
+    def toJava: JavaMailboxACL = new JavaMailboxACL(entries.asJava)
   }
 
   case class Quota[T <: QuotaLimitValue[T], U <: QuotaUsageValue[U, T]](used: U, limit: T, limits: Map[JavaQuota.Scope, T]) {
@@ -133,14 +143,16 @@ object DTOs {
   object UpdatedFlags {
     def toUpdatedFlags(javaUpdatedFlags: JavaUpdatedFlags): UpdatedFlags = UpdatedFlags(
       javaUpdatedFlags.getUid,
+      javaUpdatedFlags.getMessageId.toScala,
       javaUpdatedFlags.getModSeq,
       Flags.fromJavaFlags(javaUpdatedFlags.getOldFlags),
       Flags.fromJavaFlags(javaUpdatedFlags.getNewFlags))
   }
 
-  case class UpdatedFlags(uid: MessageUid, modSeq: ModSeq, oldFlags: Flags, newFlags: Flags) {
+  case class UpdatedFlags(uid: MessageUid, messageId: Option[MessageId], modSeq: ModSeq, oldFlags: Flags, newFlags: Flags) {
     def toJava: JavaUpdatedFlags = JavaUpdatedFlags.builder()
       .uid(uid)
+      .messageId(messageId.toJava)
       .modSeq(modSeq)
       .oldFlags(Flags.toJavaFlags(oldFlags))
       .newFlags(Flags.toJavaFlags(newFlags))

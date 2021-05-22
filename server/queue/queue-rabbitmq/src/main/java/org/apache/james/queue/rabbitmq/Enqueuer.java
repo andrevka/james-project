@@ -42,6 +42,7 @@ import com.github.fge.lambdas.Throwing;
 import com.google.common.collect.ImmutableMap;
 import com.rabbitmq.client.AMQP;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.rabbitmq.OutboundMessage;
 import reactor.rabbitmq.Sender;
@@ -67,14 +68,18 @@ class Enqueuer {
         this.enqueueMetric = metricFactory.generate(ENQUEUED_METRIC_NAME_PREFIX + name.asString());
     }
 
-    void enQueue(Mail mail) throws MailQueue.MailQueueException {
+    Mono<Void> enQueue(Mail mail) throws MailQueue.MailQueueException {
         EnqueueId enqueueId = EnqueueId.generate();
-        saveMail(mail)
+        return saveMail(mail)
             .map(partIds -> new MailReference(enqueueId, mail, partIds))
-            .flatMap(Throwing.function(this::publishReferenceToRabbit).sneakyThrow())
-            .flatMap(mailQueueView::storeMail)
-            .thenEmpty(Mono.fromRunnable(enqueueMetric::increment))
-            .block();
+            .flatMap(Throwing.<MailReference, Mono<Void>>function(mailReference -> {
+                EnqueuedItem enqueuedItem = toEnqueuedItems(mailReference);
+                return Flux.mergeDelayError(2,
+                        mailQueueView.storeMail(enqueuedItem),
+                        publishReferenceToRabbit(mailReference))
+                        .then();
+            }).sneakyThrow())
+            .thenEmpty(Mono.fromRunnable(enqueueMetric::increment));
     }
 
     Mono<Void> reQueue(CassandraMailQueueBrowser.CassandraMailQueueItemView item) {
@@ -92,7 +97,7 @@ class Enqueuer {
         }
     }
 
-    private Mono<EnqueuedItem> publishReferenceToRabbit(MailReference mailReference) throws MailQueue.MailQueueException {
+    private Mono<Void> publishReferenceToRabbit(MailReference mailReference) throws MailQueue.MailQueueException {
         AMQP.BasicProperties basicProperties = new AMQP.BasicProperties.Builder()
             .deliveryMode(PERSISTENT_TEXT_PLAIN.getDeliveryMode())
             .priority(PERSISTENT_TEXT_PLAIN.getPriority())
@@ -105,15 +110,17 @@ class Enqueuer {
             EMPTY_ROUTING_KEY,
             basicProperties,
             getMailReferenceBytes(mailReference));
-        return sender.send(Mono.just(data))
-            .then(Mono.just(
-                EnqueuedItem.builder()
-                    .enqueueId(mailReference.getEnqueueId())
-                    .mailQueueName(name)
-                    .mail(mailReference.getMail())
-                    .enqueuedTime(clock.instant())
-                    .mimeMessagePartsId(mailReference.getPartsId())
-                    .build()));
+        return sender.send(Mono.just(data));
+    }
+
+    private EnqueuedItem toEnqueuedItems(MailReference mailReference) {
+        return EnqueuedItem.builder()
+                .enqueueId(mailReference.getEnqueueId())
+                .mailQueueName(name)
+                .mail(mailReference.getMail())
+                .enqueuedTime(clock.instant())
+                .mimeMessagePartsId(mailReference.getPartsId())
+                .build();
     }
 
     private byte[] getMailReferenceBytes(MailReference mailReference) throws MailQueue.MailQueueException {

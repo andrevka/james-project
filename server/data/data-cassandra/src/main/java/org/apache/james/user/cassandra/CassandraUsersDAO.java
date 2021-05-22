@@ -43,6 +43,7 @@ import org.apache.james.user.api.AlreadyExistInUsersRepositoryException;
 import org.apache.james.user.api.UsersRepositoryException;
 import org.apache.james.user.api.model.User;
 import org.apache.james.user.lib.UsersDAO;
+import org.apache.james.user.lib.model.Algorithm;
 import org.apache.james.user.lib.model.DefaultUser;
 
 import com.datastax.driver.core.PreparedStatement;
@@ -53,6 +54,7 @@ import com.google.common.primitives.Ints;
 public class CassandraUsersDAO implements UsersDAO {
     private static final String DEFAULT_ALGO_VALUE = "SHA-512";
 
+    private final Algorithm.Factory algorithmFactory;
     private final CassandraAsyncExecutor executor;
     private final PreparedStatement getUserStatement;
     private final PreparedStatement updateUserStatement;
@@ -62,7 +64,8 @@ public class CassandraUsersDAO implements UsersDAO {
     private final PreparedStatement insertStatement;
 
     @Inject
-    public CassandraUsersDAO(Session session) {
+    public CassandraUsersDAO(Algorithm.Factory algorithmFactory, Session session) {
+        this.algorithmFactory = algorithmFactory;
         this.executor = new CassandraAsyncExecutor(session);
         this.getUserStatement = prepareGetUserStatement(session);
         this.updateUserStatement = prepareUpdateUserStatement(session);
@@ -113,7 +116,8 @@ public class CassandraUsersDAO implements UsersDAO {
         return executor.executeSingleRow(
                 getUserStatement.bind()
                     .setString(NAME, name.asString()))
-            .map(row -> new DefaultUser(Username.of(row.getString(NAME)), row.getString(PASSWORD), row.getString(ALGORITHM)))
+            .map(row -> new DefaultUser(Username.of(row.getString(NAME)), row.getString(PASSWORD),
+                algorithmFactory.of(row.getString(ALGORITHM))))
             .blockOptional();
     }
 
@@ -125,7 +129,7 @@ public class CassandraUsersDAO implements UsersDAO {
                 updateUserStatement.bind()
                     .setString(REALNAME, defaultUser.getUserName().asString())
                     .setString(PASSWORD, defaultUser.getHashedPassword())
-                    .setString(ALGORITHM, defaultUser.getHashAlgorithm())
+                    .setString(ALGORITHM, defaultUser.getHashAlgorithm().asString())
                     .setString(NAME, defaultUser.getUserName().asString()))
             .block();
 
@@ -169,14 +173,14 @@ public class CassandraUsersDAO implements UsersDAO {
 
     @Override
     public void addUser(Username username, String password) throws UsersRepositoryException {
-        DefaultUser user = new DefaultUser(username, DEFAULT_ALGO_VALUE);
+        DefaultUser user = new DefaultUser(username, algorithmFactory.of(DEFAULT_ALGO_VALUE));
         user.setPassword(password);
         boolean executed = executor.executeReturnApplied(
             insertStatement.bind()
                 .setString(NAME, user.getUserName().asString())
                 .setString(REALNAME, user.getUserName().asString())
                 .setString(PASSWORD, user.getHashedPassword())
-                .setString(ALGORITHM, user.getHashAlgorithm()))
+                .setString(ALGORITHM, user.getHashAlgorithm().asString()))
             .block();
 
         if (!executed) {

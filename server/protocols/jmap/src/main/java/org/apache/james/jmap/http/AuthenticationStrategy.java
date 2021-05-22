@@ -28,6 +28,8 @@ import reactor.netty.http.server.HttpServerRequest;
 public interface AuthenticationStrategy {
     Mono<MailboxSession> createMailboxSession(HttpServerRequest httpRequest);
 
+    AuthenticationChallenge correspondingChallenge();
+
     String AUTHORIZATION_HEADERS = "Authorization";
 
     default String authHeaders(HttpServerRequest httpRequest) {

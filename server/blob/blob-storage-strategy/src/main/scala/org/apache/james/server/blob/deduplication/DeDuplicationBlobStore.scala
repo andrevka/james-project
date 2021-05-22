@@ -20,6 +20,7 @@
 package org.apache.james.server.blob.deduplication
 
 import java.io.InputStream
+import java.util.concurrent.Callable
 
 import com.google.common.base.Preconditions
 import com.google.common.hash.{Hashing, HashingInputStream}
@@ -32,17 +33,28 @@ import reactor.core.publisher.Mono
 import reactor.core.scala.publisher.SMono
 import reactor.util.function.{Tuple2, Tuples}
 
+import scala.compat.java8.FunctionConverters._
+
 object DeDuplicationBlobStore {
-  val DEFAULT_BUCKET = "defaultBucket"
   val LAZY_RESOURCE_CLEANUP = false
   val FILE_THRESHOLD = 10000
 }
 
 class DeDuplicationBlobStore @Inject()(blobStoreDAO: BlobStoreDAO,
-                                       @Named("defaultBucket") defaultBucketName: BucketName,
+                                       @Named(BlobStore.DEFAULT_BUCKET_NAME_QUALIFIER) defaultBucketName: BucketName,
                                        blobIdFactory: BlobId.Factory) extends BlobStore {
 
   override def save(bucketName: BucketName, data: Array[Byte], storagePolicy: BlobStore.StoragePolicy): Publisher[BlobId] = {
+    Preconditions.checkNotNull(bucketName)
+    Preconditions.checkNotNull(data)
+
+    val blobId = blobIdFactory.forPayload(data)
+
+    SMono(blobStoreDAO.save(bucketName, blobId, data))
+      .`then`(SMono.just(blobId))
+  }
+
+  override def save(bucketName: BucketName, data: ByteSource, storagePolicy: BlobStore.StoragePolicy): Publisher[BlobId] = {
     Preconditions.checkNotNull(bucketName)
     Preconditions.checkNotNull(data)
 
@@ -56,10 +68,13 @@ class DeDuplicationBlobStore @Inject()(blobStoreDAO: BlobStoreDAO,
     Preconditions.checkNotNull(bucketName)
     Preconditions.checkNotNull(data)
     val hashingInputStream = new HashingInputStream(Hashing.sha256, data)
-    val sourceSupplier: FileBackedOutputStream => SMono[BlobId] = (fileBackedOutputStream: FileBackedOutputStream) => saveAndGenerateBlobId(bucketName, hashingInputStream, fileBackedOutputStream)
-    Mono.using(() => new FileBackedOutputStream(DeDuplicationBlobStore.FILE_THRESHOLD),
-      sourceSupplier,
-      (fileBackedOutputStream: FileBackedOutputStream) => fileBackedOutputStream.reset(),
+    val sourceSupplier: FileBackedOutputStream => Mono[BlobId] = (fileBackedOutputStream: FileBackedOutputStream) => saveAndGenerateBlobId(bucketName, hashingInputStream, fileBackedOutputStream).asJava()
+    val ressourceSupplier: Callable[FileBackedOutputStream] = () => new FileBackedOutputStream(DeDuplicationBlobStore.FILE_THRESHOLD)
+
+    Mono.using(
+      ressourceSupplier,
+      sourceSupplier.asJava,
+      ((fileBackedOutputStream: FileBackedOutputStream) => fileBackedOutputStream.reset()).asJava,
       DeDuplicationBlobStore.LAZY_RESOURCE_CLEANUP)
   }
 
@@ -91,10 +106,10 @@ class DeDuplicationBlobStore @Inject()(blobStoreDAO: BlobStoreDAO,
     blobStoreDAO.deleteBucket(bucketName)
   }
 
-  override def delete(bucketName: BucketName, blobId: BlobId): Publisher[Void] = {
+  override def delete(bucketName: BucketName, blobId: BlobId): Publisher[java.lang.Boolean] = {
     Preconditions.checkNotNull(bucketName)
     Preconditions.checkNotNull(blobId)
 
-    SMono.empty
+    SMono.just(Boolean.box(false))
   }
 }

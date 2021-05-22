@@ -131,14 +131,14 @@ import reactor.core.publisher.Mono;
  * Lucene based {@link ListeningMessageSearchIndex} which offers message searching via a Lucene index
  */
 public class LuceneMessageSearchIndex extends ListeningMessageSearchIndex {
-    public static class LuceneMessageSearchIndexGroup extends org.apache.james.mailbox.events.Group {
+    public static class LuceneMessageSearchIndexGroup extends org.apache.james.events.Group {
 
     }
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LuceneMessageSearchIndex.class);
     private static final Date MAX_DATE;
     private static final Date MIN_DATE;
-    public static final org.apache.james.mailbox.events.Group GROUP = new LuceneMessageSearchIndexGroup();
+    public static final org.apache.james.events.Group GROUP = new LuceneMessageSearchIndexGroup();
     
     static {
         Calendar cal = Calendar.getInstance();
@@ -404,7 +404,7 @@ public class LuceneMessageSearchIndex extends ListeningMessageSearchIndex {
     }
 
     @Override
-    public org.apache.james.mailbox.events.Group getDefaultGroup() {
+    public org.apache.james.events.Group getDefaultGroup() {
         return GROUP;
     }
 
@@ -456,11 +456,10 @@ public class LuceneMessageSearchIndex extends ListeningMessageSearchIndex {
     
     
     @Override
-    public Stream<MessageUid> search(MailboxSession session, Mailbox mailbox, SearchQuery searchQuery) throws MailboxException {
+    public Flux<MessageUid> search(MailboxSession session, Mailbox mailbox, SearchQuery searchQuery) throws MailboxException {
         Preconditions.checkArgument(session != null, "'session' is mandatory");
 
-        return searchMultimap(ImmutableList.of(mailbox.getMailboxId()), searchQuery)
-            .stream()
+        return Flux.fromIterable(searchMultimap(ImmutableList.of(mailbox.getMailboxId()), searchQuery))
             .map(SearchResult::getMessageUid);
     }
 
@@ -1037,16 +1036,6 @@ public class LuceneMessageSearchIndex extends ListeningMessageSearchIndex {
                     return UID_SORT_REVERSE;
                 }
                 return UID_SORT;
-            case DisplayFrom:
-                if (reverse) {
-                    return FIRST_FROM_MAILBOX_DISPLAY_SORT_REVERSE;
-                }
-                return FIRST_FROM_MAILBOX_DISPLAY_SORT;
-            case DisplayTo:
-                if (reverse) {
-                    return FIRST_TO_MAILBOX_DISPLAY_SORT_REVERSE;
-                }
-                return FIRST_TO_MAILBOX_DISPLAY_SORT;
             default:
                 return null;
         }

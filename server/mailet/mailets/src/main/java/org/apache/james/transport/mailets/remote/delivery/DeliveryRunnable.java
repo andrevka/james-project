@@ -19,7 +19,6 @@
 
 package org.apache.james.transport.mailets.remote.delivery;
 
-import static org.apache.james.metrics.api.TimeMetric.ExecutionResult.DEFAULT_100_MS_THRESHOLD;
 import static org.apache.james.transport.mailets.remote.delivery.Bouncer.IS_DELIVERY_PERMANENT_ERROR;
 
 import java.time.Duration;
@@ -47,6 +46,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
+import reactor.util.concurrent.Queues;
 
 public class DeliveryRunnable implements Disposable {
     private static final Logger LOGGER = LoggerFactory.getLogger(DeliveryRunnable.class);
@@ -87,7 +87,7 @@ public class DeliveryRunnable implements Disposable {
     public void start() {
         remoteDeliveryScheduler = Schedulers.newBoundedElastic(Schedulers.DEFAULT_BOUNDED_ELASTIC_SIZE, Schedulers.DEFAULT_BOUNDED_ELASTIC_QUEUESIZE, "RemoteDelivery");
         disposable = Flux.from(queue.deQueue())
-            .flatMap(queueItem -> runStep(queueItem).subscribeOn(remoteDeliveryScheduler))
+            .flatMap(queueItem -> runStep(queueItem).subscribeOn(remoteDeliveryScheduler), Queues.SMALL_BUFFER_SIZE)
             .onErrorContinue(((throwable, nothing) -> LOGGER.error("Exception caught in RemoteDelivery", throwable)))
             .subscribeOn(remoteDeliveryScheduler)
             .subscribe();
@@ -97,30 +97,37 @@ public class DeliveryRunnable implements Disposable {
         TimeMetric timeMetric = metricFactory.timer(REMOTE_DELIVERY_TRIAL);
         try {
             return processMail(queueItem)
-                .doOnSuccess(any -> timeMetric.stopAndPublish().logWhenExceedP99(DEFAULT_100_MS_THRESHOLD));
+                .doOnSuccess(any -> timeMetric.stopAndPublish());
         } catch (Throwable e) {
             return Mono.error(e);
         }
     }
 
-    private Mono<Void> processMail(MailQueue.MailQueueItem queueItem) throws MailQueue.MailQueueException {
-        Mail mail = queueItem.getMail();
+    private Mono<Void> processMail(MailQueue.MailQueueItem queueItem) {
+        return Mono.create(sink -> {
+            Mail mail = queueItem.getMail();
 
-        try {
-            LOGGER.debug("will process mail {}", mail.getName());
-            attemptDelivery(mail);
-            queueItem.done(true);
-            return Mono.empty();
-        } catch (Exception e) {
-            // Prevent unexpected exceptions from causing looping by removing message from outgoing.
-            // DO NOT CHANGE THIS to catch Error!
-            // For example, if there were an OutOfMemory condition caused because
-            // something else in the server was abusing memory, we would not want to start purging the retrying spool!
-            queueItem.done(false);
-            return Mono.error(e);
-        } finally {
-            LifecycleUtil.dispose(mail);
-        }
+            try {
+                LOGGER.debug("will process mail {}", mail.getName());
+                attemptDelivery(mail);
+                queueItem.done(true);
+                sink.success();
+            } catch (Exception e) {
+                try {
+                    // Prevent unexpected exceptions from causing looping by removing message from outgoing.
+                    // DO NOT CHANGE THIS to catch Error!
+                    // For example, if there were an OutOfMemory condition caused because
+                    // something else in the server was abusing memory, we would not want to start purging the retrying spool!
+                    queueItem.done(false);
+                } catch (Exception ex) {
+                    sink.error(ex);
+                    return;
+                }
+                sink.error(e);
+            } finally {
+                LifecycleUtil.dispose(mail);
+            }
+        });
     }
 
     @VisibleForTesting

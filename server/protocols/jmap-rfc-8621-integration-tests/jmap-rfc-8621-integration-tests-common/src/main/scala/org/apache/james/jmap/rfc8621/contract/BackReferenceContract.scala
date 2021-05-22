@@ -27,6 +27,8 @@ import net.javacrumbs.jsonunit.core.Option
 import net.javacrumbs.jsonunit.core.internal.Options
 import org.apache.http.HttpStatus.SC_OK
 import org.apache.james.GuiceJamesServer
+import org.apache.james.jmap.core.ResponseObject.SESSION_STATE
+import org.apache.james.jmap.core.UuidState.INSTANCE
 import org.apache.james.jmap.http.UserCredential
 import org.apache.james.jmap.rfc8621.contract.Fixture._
 import org.apache.james.mailbox.MessageManager.AppendCommand
@@ -87,15 +89,17 @@ trait BackReferenceContract {
       .body()
       .asString()
 
-    assertThatJson(response).isEqualTo(
+    assertThatJson(response)
+      .whenIgnoringPaths("methodResponses[0][1].state", "methodResponses[1][1].state")
+      .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/get",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "state": "000001",
+         |                "state": "${INSTANCE.value}",
          |                "list": [
          |                    {"id": "1"},
          |                    {"id": "5"},
@@ -112,7 +116,6 @@ trait BackReferenceContract {
          |            "Mailbox/get",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "state": "000001",
          |                "list": [
          |                    {"id": "1"},
          |                    {"id": "5"},
@@ -166,15 +169,16 @@ trait BackReferenceContract {
       .body()
       .asString()
 
-    assertThatJson(response).isEqualTo(
+    assertThatJson(response)
+      .whenIgnoringPaths("methodResponses[0][1].state")
+      .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/get",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "state": "000001",
          |                "list": [
          |                    {"id": "1"},
          |                    {"id": "5"},
@@ -191,7 +195,7 @@ trait BackReferenceContract {
          |            "error",
          |            {
          |                "type": "invalidResultReference",
-         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(Expected path unknown was missing),ArraySeq()))))"
+         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(Expected path unknown was missing),List()))))"
          |            },
          |            "c2"
          |        ]
@@ -236,15 +240,16 @@ trait BackReferenceContract {
       .body()
       .asString()
 
-    assertThatJson(response).isEqualTo(
+    assertThatJson(response)
+      .whenIgnoringPaths("methodResponses[0][1].state")
+      .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/get",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "state": "000001",
          |                "list": [
          |                    {"id": "1"},
          |                    {"id": "5"},
@@ -261,7 +266,7 @@ trait BackReferenceContract {
          |            "error",
          |            {
          |                "type": "invalidResultReference",
-         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(Expecting an array),ArraySeq()))))"
+         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(Expecting an array),List()))))"
          |            },
          |            "c2"
          |        ]
@@ -306,15 +311,16 @@ trait BackReferenceContract {
       .body()
       .asString()
 
-    assertThatJson(response).isEqualTo(
+    assertThatJson(response)
+      .whenIgnoringPaths("methodResponses[0][1].state")
+      .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/get",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "state": "000001",
          |                "list": [
          |                    {"id": "1"},
          |                    {"id": "5"},
@@ -331,7 +337,7 @@ trait BackReferenceContract {
          |            "error",
          |            {
          |                "type": "invalidResultReference",
-         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(MethodCallId(c1) references a MethodName(Mailbox/get) method),ArraySeq()))))"
+         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(MethodCallId(c1) references a MethodName(Mailbox/get) method),List()))))"
          |            },
          |            "c2"
          |        ]
@@ -376,15 +382,16 @@ trait BackReferenceContract {
       .body()
       .asString()
 
-    assertThatJson(response).isEqualTo(
+    assertThatJson(response)
+      .whenIgnoringPaths("methodResponses[0][1].state")
+      .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/get",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "state": "000001",
          |                "list": [
          |                    {"id": "1"},
          |                    {"id": "5"},
@@ -401,7 +408,7 @@ trait BackReferenceContract {
          |            "error",
          |            {
          |                "type": "invalidResultReference",
-         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(Back reference could not be resolved),ArraySeq()))))"
+         |                "description": "Failed resolving back-reference: List((,List(JsonValidationError(List(Back reference could not be resolved),List()))))"
          |            },
          |            "c2"
          |        ]
@@ -457,7 +464,7 @@ trait BackReferenceContract {
            |         "path":"ids[0]"
            |       }
            |      },
-           |      "comparator": [{
+           |      "sort": [{
            |        "property":"receivedAt",
            |        "isAscending": false
            |      }]
@@ -485,9 +492,10 @@ trait BackReferenceContract {
 
     assertThatJson(response)
       .withOptions(new Options(Option.IGNORING_ARRAY_ORDER))
+      .whenIgnoringPaths("methodResponses[2][1].state")
       .isEqualTo(
       s"""{
-         |    "sessionState": "75128aab4b1b",
+         |    "sessionState": "${SESSION_STATE.value}",
          |    "methodResponses": [
          |        [
          |            "Mailbox/query",
@@ -517,7 +525,7 @@ trait BackReferenceContract {
          |            "Email/get",
          |            {
          |                "accountId": "29883977c13473ae7cb7678ef767cbfbaffc8a44a6e463d971d23a65c1dc4af6",
-         |                "state": "000001",
+         |                "state": "${INSTANCE.value}",
          |                "list": [
          |                    {"id": "${messageId3.serialize}", "subject": "message 3"},
          |                    {"id": "${messageId2.serialize}", "subject": "message 2"},

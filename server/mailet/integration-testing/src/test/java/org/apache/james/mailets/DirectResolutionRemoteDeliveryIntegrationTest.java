@@ -29,6 +29,7 @@ import static org.apache.james.mailets.configuration.MailetConfiguration.LOCAL_D
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 
+import java.io.File;
 import java.net.InetAddress;
 import java.util.List;
 
@@ -37,6 +38,7 @@ import org.apache.james.dnsservice.api.InMemoryDNSService;
 import org.apache.james.mailets.configuration.CommonProcessors;
 import org.apache.james.mailets.configuration.MailetConfiguration;
 import org.apache.james.mailets.configuration.ProcessorConfiguration;
+import org.apache.james.mailets.configuration.SmtpConfiguration;
 import org.apache.james.modules.protocols.ImapGuiceProbe;
 import org.apache.james.modules.protocols.SmtpGuiceProbe;
 import org.apache.james.probe.DataProbe;
@@ -46,12 +48,11 @@ import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.FakeSmtp;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
-import org.junit.After;
-import org.junit.ClassRule;
-import org.junit.Ignore;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,30 +68,27 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
     private static final ImmutableList<InetAddress> ADDRESS_EMPTY_LIST = ImmutableList.of();
     private static final ImmutableList<String> RECORD_EMPTY_LIST = ImmutableList.of();
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
-    @ClassRule
+    @RegisterExtension
     public static FakeSmtp fakeSmtp = FakeSmtp.withDefaultPort();
-    @ClassRule
+    @RegisterExtension
     public static FakeSmtp fakeSmtpOnPort26 = FakeSmtp.withSmtpPort(26);
 
     private TemporaryJamesServer jamesServer;
     private DataProbe dataProbe;
 
-    @After
-    public void tearDown() {
-        fakeSmtp.clean();
+    @AfterEach
+    void tearDown() {
         if (jamesServer != null) {
             jamesServer.shutdown();
         }
     }
 
     @Test
-    public void directResolutionShouldBeWellPerformed() throws Exception {
+    void directResolutionShouldBeWellPerformed(@TempDir File temporaryFolder) throws Exception {
         InMemoryDNSService inMemoryDNSService = new InMemoryDNSService()
             .registerMxRecord(JAMES_ANOTHER_DOMAIN, fakeSmtp.getContainer().getContainerIp());
 
@@ -100,7 +98,10 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
             .withMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
                 .putProcessor(directResolutionTransport())
                 .putProcessor(CommonProcessors.bounces()))
-            .build(temporaryFolder.newFolder());
+            .withSmtpConfiguration(SmtpConfiguration.builder()
+                .doNotVerifyIdentity()
+                .build())
+            .build(temporaryFolder);
         jamesServer.start();
 
         dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -115,7 +116,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
     }
 
     @Test
-    public void directResolutionShouldFailoverOnSecondMxWhenFirstMxFailed() throws Exception {
+    void directResolutionShouldFailoverOnSecondMxWhenFirstMxFailed(@TempDir File temporaryFolder) throws Exception {
         InMemoryDNSService inMemoryDNSService = new InMemoryDNSService()
             .registerRecord(JAMES_ANOTHER_DOMAIN, ADDRESS_EMPTY_LIST, JAMES_ANOTHER_MX_DOMAINS, RECORD_EMPTY_LIST)
             .registerMxRecord(JAMES_ANOTHER_MX_DOMAIN_1, fakeSmtpOnPort26.getContainer().getContainerIp())
@@ -127,7 +128,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
             .withMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
                 .putProcessor(directResolutionTransport())
                 .putProcessor(CommonProcessors.bounces()))
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -135,6 +136,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
         dataProbe.addUser(FROM, PASSWORD);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         awaitAtMostOneMinute
@@ -142,7 +144,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
     }
 
     @Test
-    public void directResolutionShouldBounceUponUnreachableMxRecords() throws Exception {
+    void directResolutionShouldBounceUponUnreachableMxRecords(@TempDir File temporaryFolder) throws Exception {
         InMemoryDNSService inMemoryDNSService = new InMemoryDNSService()
             .registerRecord(JAMES_ANOTHER_DOMAIN, ADDRESS_EMPTY_LIST, ImmutableList.of("unknown"), RECORD_EMPTY_LIST);
 
@@ -152,7 +154,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
             .withMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
                 .putProcessor(transport())
                 .putProcessor(CommonProcessors.bounces()))
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -160,6 +162,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
         dataProbe.addUser(FROM, PASSWORD);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -169,7 +172,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
     }
 
     @Test
-    public void directResolutionShouldBounceWhenNoMxRecord() throws Exception {
+    void directResolutionShouldBounceWhenNoMxRecord(@TempDir File temporaryFolder) throws Exception {
         InMemoryDNSService inMemoryDNSService = new InMemoryDNSService()
             .registerRecord(JAMES_ANOTHER_DOMAIN, ADDRESS_EMPTY_LIST, RECORD_EMPTY_LIST, RECORD_EMPTY_LIST);
 
@@ -179,7 +182,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
             .withMailetContainer(TemporaryJamesServer.simpleMailetContainerConfiguration()
                 .putProcessor(transport())
                 .putProcessor(CommonProcessors.bounces()))
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -187,6 +190,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
         dataProbe.addUser(FROM, PASSWORD);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -195,9 +199,9 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
             .awaitMessage(awaitAtMostOneMinute);
     }
 
-    @Ignore("JAMES-2913 PerRecipientHeaders are not handled by RemoteDelivery")
+    @Disabled("JAMES-2913 PerRecipientHeaders are not handled by RemoteDelivery")
     @Test
-    public void remoteDeliveryShouldAddPerRecipientHeaders() throws Exception {
+    void remoteDeliveryShouldAddPerRecipientHeaders(@TempDir File temporaryFolder) throws Exception {
         InMemoryDNSService inMemoryDNSService = new InMemoryDNSService()
             .registerMxRecord(JAMES_ANOTHER_DOMAIN, fakeSmtp.getContainer().getContainerIp());
 
@@ -215,7 +219,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
                     .addMailet(MailetConfiguration.remoteDeliveryBuilder()
                         .matcher(All.class)))
                 .putProcessor(CommonProcessors.bounces()))
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -223,6 +227,7 @@ public class DirectResolutionRemoteDeliveryIntegrationTest {
         dataProbe.addUser(FROM, PASSWORD);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         awaitAtMostOneMinute

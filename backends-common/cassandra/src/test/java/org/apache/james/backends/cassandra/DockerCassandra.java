@@ -19,6 +19,11 @@
 
 package org.apache.james.backends.cassandra;
 
+import java.io.Closeable;
+import java.io.IOException;
+import java.util.Optional;
+import java.util.UUID;
+
 import org.apache.james.backends.cassandra.init.ClusterFactory;
 import org.apache.james.backends.cassandra.init.KeyspaceFactory;
 import org.apache.james.backends.cassandra.init.configuration.CassandraConsistenciesConfiguration;
@@ -36,6 +41,10 @@ import org.testcontainers.images.builder.dockerfile.DockerfileBuilder;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
 import com.github.dockerjava.api.DockerClient;
+import com.github.dockerjava.api.async.ResultCallback;
+import com.github.dockerjava.api.command.EventsCmd;
+import com.github.dockerjava.api.model.Event;
+import com.github.dockerjava.api.model.EventType;
 import com.google.common.collect.ImmutableMap;
 
 public class DockerCassandra {
@@ -107,6 +116,18 @@ public class DockerCassandra {
         DockerfileBuilder applyStep(DockerfileBuilder builder);
     }
 
+    /**
+     * @return a string to append to image names in order to avoid conflict with concurrent builds
+     */
+    private static String buildSpecificImageDiscriminator() {
+        // If available try to access the image shared by all maven projects
+        // This avoids rebuilding one for each maven surefire fork.
+        // BUILD_ID should be set by the execution context, here JenkinsFile
+        return Optional.ofNullable(System.getenv("BUILD_ID"))
+            // Default to an image discriminator specific to this JVM
+            .orElse(UUID.randomUUID().toString());
+    }
+
     private static final int CASSANDRA_PORT = 9042;
     private static final int CASSANDRA_MEMORY = 650;
 
@@ -118,17 +139,42 @@ public class DockerCassandra {
 
     @SuppressWarnings("resource")
     public DockerCassandra() {
-        this("cassandra_3_11_3", AdditionalDockerFileStep.IDENTITY);
+        this("cassandra_3_11_10-" + buildSpecificImageDiscriminator(), AdditionalDockerFileStep.IDENTITY);
     }
 
-    public DockerCassandra(String imageName, AdditionalDockerFileStep additionalSteps) {
+    private DockerCassandra(String imageName, AdditionalDockerFileStep additionalSteps) {
         client = DockerClientFactory.instance().client();
+        EventsCmd eventsCmd = client.eventsCmd().withEventTypeFilter(EventType.IMAGE).withImageFilter(imageName);
+        eventsCmd.exec(new ResultCallback<Event>() {
+            @Override
+            public void onStart(Closeable closeable) {
+
+            }
+
+            @Override
+            public void onNext(Event object) {
+                logger.info(object.toString());
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                logger.error("event stream failure",throwable);
+            }
+
+            @Override
+            public void onComplete() {
+            }
+
+            @Override
+            public void close() throws IOException {
+            }
+        });
         boolean doNotDeleteImageAfterUsage = false;
         cassandraContainer = new GenericContainer<>(
             new ImageFromDockerfile(imageName,doNotDeleteImageAfterUsage)
                 .withDockerfileFromBuilder(builder ->
                     additionalSteps.applyStep(builder
-                        .from("cassandra:3.11.3")
+                        .from("cassandra:3.11.10")
                         .env("ENV CASSANDRA_CONFIG", "/etc/cassandra")
                         .run("echo \"-Xms" + CASSANDRA_MEMORY + "M\" >> " + JVM_OPTIONS)
                         .run("echo \"-Xmx" + CASSANDRA_MEMORY + "M\" >> " + JVM_OPTIONS)
@@ -144,7 +190,7 @@ public class DockerCassandra {
     }
 
     private static void displayDockerLog(OutputFrame outputFrame) {
-        logger.info(outputFrame.getUtf8String());
+        logger.info(outputFrame.getUtf8String().trim());
     }
 
     public void start() {

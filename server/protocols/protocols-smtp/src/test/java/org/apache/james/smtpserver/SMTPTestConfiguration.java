@@ -108,6 +108,10 @@ public class SMTPTestConfiguration extends BaseHierarchicalConfiguration {
         startTLS = true;
     }
 
+    public void setVerifyIdentity() {
+        verifyIdentity = true;
+    }
+
     public void init() {
 
         addProperty("[@enabled]", true);
@@ -131,9 +135,7 @@ public class SMTPTestConfiguration extends BaseHierarchicalConfiguration {
         addProperty("tls.[@startTLS]", startTLS);
         addProperty("tls.keystore", "test_keystore");
         addProperty("tls.secret", "jamestest");
-        if (verifyIdentity) {
-            addProperty("verifyIdentity", verifyIdentity);
-        }
+        addProperty("verifyIdentity", verifyIdentity);
 
         // add the rbl handler
         if (useRBL) {

@@ -30,11 +30,11 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import javax.mail.Flags;
-import javax.mail.util.SharedByteArrayInputStream;
 
 import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.ModSeq;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.model.ByteContent;
 import org.apache.james.mailbox.model.FetchGroup;
 import org.apache.james.mailbox.model.Mailbox;
 import org.apache.james.mailbox.model.MailboxCounters;
@@ -68,25 +68,12 @@ class StoreMailboxMessageResultIteratorTest {
         }
 
         @Override
-        public void endRequest() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public <T> T execute(Transaction<T> transaction) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
         public MailboxCounters getMailboxCounters(Mailbox mailbox) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public Iterator<MailboxMessage> findInMailbox(Mailbox mailbox, MessageRange set,
-                                                              org.apache.james.mailbox.store.mail.MessageMapper.FetchType type, int limit)
-                throws MailboxException {
-            
+        public Iterator<MailboxMessage> findInMailbox(Mailbox mailbox, MessageRange set, FetchType type, int limit) {
             List<MailboxMessage> messages = new ArrayList<>();
             for (MessageUid uid: Iterables.limit(set, limit)) {
                 if (messageRange.includes(uid)) {
@@ -97,8 +84,8 @@ class StoreMailboxMessageResultIteratorTest {
         }
 
         private SimpleMailboxMessage createMessage(MessageUid uid) {
-            SimpleMailboxMessage message = new SimpleMailboxMessage(new DefaultMessageId(), null, 0, 0, new SharedByteArrayInputStream(
-                    "".getBytes()), new Flags(), new PropertyBuilder(), TestId.of(1L));
+            SimpleMailboxMessage message = new SimpleMailboxMessage(new DefaultMessageId(), null, 0, 0, new ByteContent(
+                    "".getBytes()), new Flags(), new PropertyBuilder().build(), TestId.of(1L));
             message.setUid(uid);
             return message;
         }

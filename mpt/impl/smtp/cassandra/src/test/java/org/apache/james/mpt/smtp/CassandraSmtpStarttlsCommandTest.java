@@ -21,20 +21,38 @@ package org.apache.james.mpt.smtp;
 
 import static org.apache.james.modules.protocols.SmtpGuiceProbe.SmtpServerConnectedType.SMTP_START_TLS_SERVER;
 
-import org.apache.james.backends.cassandra.DockerCassandraRule;
-import org.junit.Rule;
+import org.apache.james.CassandraExtension;
+import org.apache.james.CassandraJamesServerMain;
+import org.apache.james.DockerElasticSearchExtension;
+import org.apache.james.JamesServerExtension;
+import org.apache.james.SearchConfiguration;
+import org.apache.james.TestingDistributedJamesServerBuilder;
+import org.apache.james.backends.cassandra.DockerCassandra;
+import org.apache.james.backends.cassandra.init.configuration.ClusterConfiguration;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 public class CassandraSmtpStarttlsCommandTest extends SmtpStarttlsCommandTest {
 
-    @Rule public DockerCassandraRule cassandraServer = new DockerCassandraRule();
 
-    @Rule
-    public SmtpTestRule cassandraSmtpTestRule = CassandraSmtpTestRuleFactory.create(SMTP_START_TLS_SERVER, cassandraServer.getHost());
+    private static final CassandraExtension cassandraExtension = new CassandraExtension();
 
-    @Override
-    protected SmtpHostSystem createSmtpHostSystem() {
-        return cassandraSmtpTestRule;
-    }
+    @Order(1)
+    @RegisterExtension
+    static JamesServerExtension testExtension = TestingDistributedJamesServerBuilder.withSearchConfiguration(SearchConfiguration.elasticSearch())
+            .extension(new DockerElasticSearchExtension())
+            .extension(cassandraExtension)
+            .extension(new InMemoryDnsExtension())
+            .server(CassandraJamesServerMain::createServer)
+            .overrideServerModule(binder -> binder.bind(ClusterConfiguration.class)
+                    .toInstance(DockerCassandra.configurationBuilder(cassandraExtension.getCassandra().getHost())
+                            .username(DockerCassandra.CASSANDRA_TESTING_USER)
+                            .password(DockerCassandra.CASSANDRA_TESTING_PASSWORD)
+                            .build()))
+            .build();
 
 
+    @Order(2)
+    @RegisterExtension
+    static SmtpTestExtension smtpTestExtension = new SmtpTestExtension(SMTP_START_TLS_SERVER, testExtension);
 }

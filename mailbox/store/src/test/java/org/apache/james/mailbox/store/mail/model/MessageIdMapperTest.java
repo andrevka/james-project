@@ -28,7 +28,6 @@ import java.util.List;
 
 import javax.mail.Flags;
 import javax.mail.Flags.Flag;
-import javax.mail.util.SharedByteArrayInputStream;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.core.Username;
@@ -37,6 +36,7 @@ import org.apache.james.mailbox.MessageManager.FlagsUpdateMode;
 import org.apache.james.mailbox.ModSeq;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.MailboxNotFoundException;
+import org.apache.james.mailbox.model.ByteContent;
 import org.apache.james.mailbox.model.Mailbox;
 import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
@@ -350,11 +350,12 @@ public abstract class MessageIdMapperTest {
 
         MessageId messageId = message1.getMessageId();
         Flags newFlags = new Flags(Flag.ANSWERED);
-        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.ADD);
+        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.ADD).block();
 
         ModSeq modSeq = mapperProvider.highestModSeq(benwaInboxMailbox);
         UpdatedFlags expectedUpdatedFlags = UpdatedFlags.builder()
             .uid(message1.getUid())
+            .messageId(messageId)
             .modSeq(modSeq)
             .oldFlags(new Flags())
             .newFlags(newFlags)
@@ -377,11 +378,12 @@ public abstract class MessageIdMapperTest {
             .add("userflag")
             .build();
 
-        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.REPLACE);
+        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.REPLACE).block();
 
         ModSeq modSeq = mapperProvider.highestModSeq(benwaInboxMailbox);
         UpdatedFlags expectedUpdatedFlags = UpdatedFlags.builder()
             .uid(message1.getUid())
+            .messageId(messageId)
             .modSeq(modSeq)
             .oldFlags(messageFlags)
             .newFlags(newFlags)
@@ -406,11 +408,12 @@ public abstract class MessageIdMapperTest {
             .add("userflag")
             .build();
 
-        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.REMOVE);
+        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.REMOVE).block();
 
         ModSeq modSeq = mapperProvider.highestModSeq(benwaInboxMailbox);
         UpdatedFlags expectedUpdatedFlags = UpdatedFlags.builder()
             .uid(message1.getUid())
+            .messageId(messageId)
             .modSeq(modSeq)
             .oldFlags(messageFlags)
             .newFlags(new Flags(Flags.Flag.RECENT))
@@ -435,7 +438,7 @@ public abstract class MessageIdMapperTest {
             .add("userflag")
             .build();
 
-        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.REMOVE);
+        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), newFlags, FlagsUpdateMode.REMOVE).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -451,7 +454,7 @@ public abstract class MessageIdMapperTest {
 
         MessageId messageId = message1.getMessageId();
         Flags newFlags = new Flags(Flag.ANSWERED);
-        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(), newFlags, FlagsUpdateMode.REMOVE);
+        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(), newFlags, FlagsUpdateMode.REMOVE).block();
 
         assertThat(flags.asMap()).isEmpty();
     }
@@ -459,7 +462,7 @@ public abstract class MessageIdMapperTest {
     @Test
     void setFlagsShouldReturnEmptyWhenMessageIdDoesntExist() throws Exception {
         MessageId unknownMessageId = mapperProvider.generateMessageId();
-        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(unknownMessageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.RECENT), FlagsUpdateMode.REMOVE);
+        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(unknownMessageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.RECENT), FlagsUpdateMode.REMOVE).block();
 
         assertThat(flags.asMap()).isEmpty();
     }
@@ -474,7 +477,7 @@ public abstract class MessageIdMapperTest {
 
         MessageId messageId = message1.getMessageId();
 
-        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         Flags newFlags = new FlagsBuilder()
             .add(Flag.RECENT)
@@ -483,6 +486,7 @@ public abstract class MessageIdMapperTest {
         ModSeq modSeq = mapperProvider.highestModSeq(benwaInboxMailbox);
         UpdatedFlags expectedUpdatedFlags = UpdatedFlags.builder()
             .uid(message1.getUid())
+            .messageId(messageId)
             .modSeq(modSeq)
             .oldFlags(initialFlags)
             .newFlags(newFlags)
@@ -504,18 +508,20 @@ public abstract class MessageIdMapperTest {
 
         MessageId messageId = message1.getMessageId();
         Flags newFlags = new Flags(Flag.ANSWERED);
-        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId(), message1InOtherMailbox.getMailboxId()), newFlags, FlagsUpdateMode.ADD);
+        Multimap<MailboxId, UpdatedFlags> flags = sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId(), message1InOtherMailbox.getMailboxId()), newFlags, FlagsUpdateMode.ADD).block();
 
         ModSeq modSeqBenwaInboxMailbox = mapperProvider.highestModSeq(benwaInboxMailbox);
         ModSeq modSeqBenwaWorkMailbox = mapperProvider.highestModSeq(benwaWorkMailbox);
         UpdatedFlags expectedUpdatedFlags = UpdatedFlags.builder()
             .uid(message1.getUid())
+            .messageId(messageId)
             .modSeq(modSeqBenwaInboxMailbox)
             .oldFlags(new Flags())
             .newFlags(newFlags)
             .build();
         UpdatedFlags expectedUpdatedFlags2 = UpdatedFlags.builder()
             .uid(message1InOtherMailbox.getUid())
+            .messageId(messageId)
             .modSeq(modSeqBenwaWorkMailbox)
             .oldFlags(new Flags())
             .newFlags(newFlags)
@@ -532,7 +538,7 @@ public abstract class MessageIdMapperTest {
         sut.save(message1);
 
         MessageId messageId = message1.getMessageId();
-        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -548,7 +554,7 @@ public abstract class MessageIdMapperTest {
 
         MessageId messageId = message1.getMessageId();
         Flags newFlags = new Flags(Flag.ANSWERED);
-        sut.setFlags(messageId, ImmutableList.of(), newFlags, FlagsUpdateMode.REMOVE);
+        sut.setFlags(messageId, ImmutableList.of(), newFlags, FlagsUpdateMode.REMOVE).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -563,7 +569,7 @@ public abstract class MessageIdMapperTest {
         sut.save(message1);
 
         MessageId messageId = message1.getMessageId();
-        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -581,7 +587,7 @@ public abstract class MessageIdMapperTest {
 
         MessageId messageId = message1.getMessageId();
         Flags newFlags = new Flags(Flag.ANSWERED);
-        sut.setFlags(messageId, ImmutableList.of(), newFlags, FlagsUpdateMode.REMOVE);
+        sut.setFlags(messageId, ImmutableList.of(), newFlags, FlagsUpdateMode.REMOVE).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -600,7 +606,7 @@ public abstract class MessageIdMapperTest {
         sut.save(message1InOtherMailbox);
 
         MessageId messageId = message1.getMessageId();
-        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId(), message1InOtherMailbox.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId(), message1InOtherMailbox.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(2);
@@ -624,7 +630,7 @@ public abstract class MessageIdMapperTest {
         sut.save(message4);
 
         MessageId messageId = message1.getMessageId();
-        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -647,7 +653,7 @@ public abstract class MessageIdMapperTest {
         sut.save(message4);
 
         MessageId messageId = message1.getMessageId();
-        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId(), message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        sut.setFlags(messageId, ImmutableList.of(message1.getMailboxId(), message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(messageId), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -655,7 +661,7 @@ public abstract class MessageIdMapperTest {
     }
 
     @Test
-    void setFlagsShouldWorkWithConcurrencyWithAdd() throws Exception {
+    public void setFlagsShouldWorkWithConcurrencyWithAdd() throws Exception {
         Assume.assumeTrue(mapperProvider.getSupportedCapabilities().contains(MapperProvider.Capabilities.THREAD_SAFE_FLAGS_UPDATE));
         message1.setUid(mapperProvider.generateMessageUid());
         message1.setModSeq(mapperProvider.generateModSeq(benwaInboxMailbox));
@@ -667,7 +673,7 @@ public abstract class MessageIdMapperTest {
             .operation((threadNumber, step) -> sut.setFlags(message1.getMessageId(),
                 ImmutableList.of(message1.getMailboxId()),
                 new Flags("custom-" + threadNumber + "-" + step),
-                FlagsUpdateMode.ADD))
+                FlagsUpdateMode.ADD).block())
             .threadCount(threadCount)
             .operationCount(updateCount)
             .runSuccessfullyWithin(Duration.ofMinutes(1));
@@ -678,7 +684,7 @@ public abstract class MessageIdMapperTest {
     }
 
     @Test
-    void setFlagsShouldWorkWithConcurrencyWithRemove() throws Exception {
+    public void setFlagsShouldWorkWithConcurrencyWithRemove() throws Exception {
         Assume.assumeTrue(mapperProvider.getSupportedCapabilities().contains(MapperProvider.Capabilities.THREAD_SAFE_FLAGS_UPDATE));
         message1.setUid(mapperProvider.generateMessageUid());
         message1.setModSeq(mapperProvider.generateModSeq(benwaInboxMailbox));
@@ -692,12 +698,14 @@ public abstract class MessageIdMapperTest {
                     sut.setFlags(message1.getMessageId(),
                         ImmutableList.of(message1.getMailboxId()),
                         new Flags("custom-" + threadNumber + "-" + step),
-                        FlagsUpdateMode.ADD);
+                        FlagsUpdateMode.ADD)
+                        .block();
                 } else {
                     sut.setFlags(message1.getMessageId(),
                         ImmutableList.of(message1.getMailboxId()),
                         new Flags("custom-" + threadNumber + "-" + (updateCount - step - 1)),
-                        FlagsUpdateMode.REMOVE);
+                        FlagsUpdateMode.REMOVE)
+                        .block();
                 }
             })
             .threadCount(threadCount)
@@ -781,7 +789,7 @@ public abstract class MessageIdMapperTest {
         message1.setModSeq(mapperProvider.generateModSeq(benwaInboxMailbox));
         sut.save(message1);
 
-        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.SEEN), FlagsUpdateMode.ADD);
+        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.SEEN), FlagsUpdateMode.ADD).block();
 
         assertThat(messageMapper.getMailboxCounters(benwaInboxMailbox).getUnseen()).isEqualTo(0);
     }
@@ -793,7 +801,7 @@ public abstract class MessageIdMapperTest {
         message1.setFlags(new Flags(Flag.SEEN));
         sut.save(message1);
 
-        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.SEEN), FlagsUpdateMode.REMOVE);
+        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.SEEN), FlagsUpdateMode.REMOVE).block();
 
         assertThat(messageMapper.getMailboxCounters(benwaInboxMailbox).getUnseen()).isEqualTo(1);
     }
@@ -809,7 +817,8 @@ public abstract class MessageIdMapperTest {
         sut.setFlags(message1.getMessageId(),
             ImmutableList.of(message1.getMailboxId()),
             new Flags(Flag.SEEN),
-            FlagsUpdateMode.ADD);
+            FlagsUpdateMode.ADD)
+            .block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(message1.getMessageId()), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -828,7 +837,8 @@ public abstract class MessageIdMapperTest {
         sut.setFlags(message1.getMessageId(),
             ImmutableList.of(message1.getMailboxId()),
             flags,
-            FlagsUpdateMode.ADD);
+            FlagsUpdateMode.ADD)
+            .block();
 
         List<MailboxMessage> messages = sut.find(ImmutableList.of(message1.getMessageId()), MessageMapper.FetchType.Body);
         assertThat(messages).hasSize(1);
@@ -847,13 +857,15 @@ public abstract class MessageIdMapperTest {
         Multimap<MailboxId, UpdatedFlags> mailboxIdUpdatedFlagsMap = sut.setFlags(message1.getMessageId(),
             ImmutableList.of(message1.getMailboxId()),
             flags,
-            FlagsUpdateMode.ADD);
+            FlagsUpdateMode.ADD)
+            .block();
 
         assertThat(mailboxIdUpdatedFlagsMap.asMap())
             .containsOnly(MapEntry.entry(message1.getMailboxId(),
                 ImmutableList.of(UpdatedFlags.builder()
                     .modSeq(modSeq)
                     .uid(message1.getUid())
+                    .messageId(message1.getMessageId())
                     .newFlags(flags)
                     .oldFlags(flags)
                     .build())));
@@ -866,7 +878,7 @@ public abstract class MessageIdMapperTest {
         message1.setFlags(new Flags(Flag.RECENT));
         sut.save(message1);
 
-        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.REMOVE);
+        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.REMOVE).block();
 
         assertThat(messageMapper.getMailboxCounters(benwaInboxMailbox).getUnseen()).isEqualTo(1);
     }
@@ -920,7 +932,7 @@ public abstract class MessageIdMapperTest {
         addMessageAndSetModSeq(benwaInboxMailbox, message1);
         addMessageAndSetModSeq(benwaInboxMailbox, message1);
 
-        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         assertThat(sut.find(ImmutableList.of(message1.getMessageId()), FetchType.Metadata))
             .extracting(MailboxMessage::createFlags)
@@ -934,7 +946,7 @@ public abstract class MessageIdMapperTest {
         addMessageAndSetModSeq(benwaInboxMailbox, message1);
         addMessageAndSetModSeq(benwaInboxMailbox, message1);
 
-        Multimap<MailboxId, UpdatedFlags> map = sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD);
+        Multimap<MailboxId, UpdatedFlags> map = sut.setFlags(message1.getMessageId(), ImmutableList.of(message1.getMailboxId()), new Flags(Flag.ANSWERED), FlagsUpdateMode.ADD).block();
 
         assertThat(map.values()).hasSize(2);
         assertThat(map.asMap()).hasSize(1);
@@ -990,9 +1002,9 @@ public abstract class MessageIdMapperTest {
                 new Date(), 
                 content.length(), 
                 bodyStart, 
-                new SharedByteArrayInputStream(content.getBytes()), 
+                new ByteContent(content.getBytes()),
                 new Flags(), 
-                propertyBuilder, 
+                propertyBuilder.build(),
                 mailbox.getMailboxId());
     }
 }

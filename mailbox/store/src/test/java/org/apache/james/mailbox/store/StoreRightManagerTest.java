@@ -31,13 +31,13 @@ import static org.mockito.Mockito.when;
 import javax.mail.Flags;
 
 import org.apache.james.core.Username;
+import org.apache.james.events.EventBus;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MailboxSessionUtil;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
 import org.apache.james.mailbox.acl.MailboxACLResolver;
 import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
 import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
-import org.apache.james.mailbox.events.EventBus;
 import org.apache.james.mailbox.exception.DifferentDomainException;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.MailboxNotFoundException;
@@ -86,8 +86,8 @@ class StoreRightManagerTest {
     @Test
     void hasRightShouldThrowMailboxNotFoundExceptionWhenMailboxDoesNotExist() {
         MailboxPath mailboxPath = MailboxPath.forUser(MailboxFixture.ALICE, "unexisting mailbox");
-        when(mockedMailboxMapper.findMailboxByPath(mailboxPath))
-            .thenReturn(Mono.error(new MailboxNotFoundException("")));
+        when(mockedMailboxMapper.pathExists(mailboxPath))
+            .thenReturn(Mono.just(false));
 
         assertThatThrownBy(() ->
             storeRightManager.hasRight(mailboxPath, Right.Read, aliceSession))

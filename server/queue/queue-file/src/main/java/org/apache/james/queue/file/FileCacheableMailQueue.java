@@ -53,14 +53,15 @@ import org.apache.james.lifecycle.api.LifecycleUtil;
 import org.apache.james.queue.api.MailQueueItemDecoratorFactory;
 import org.apache.james.queue.api.MailQueueName;
 import org.apache.james.queue.api.ManageableMailQueue;
-import org.apache.james.server.core.MimeMessageCopyOnWriteProxy;
 import org.apache.james.server.core.MimeMessageSource;
+import org.apache.james.server.core.MimeMessageWrapper;
 import org.apache.james.util.concurrent.NamedThreadFactory;
 import org.apache.mailet.Attribute;
 import org.apache.mailet.AttributeName;
 import org.apache.mailet.AttributeUtils;
 import org.apache.mailet.AttributeValue;
 import org.apache.mailet.Mail;
+import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -119,6 +120,11 @@ public class FileCacheableMailQueue implements ManageableMailQueue {
     @Override
     public MailQueueName getName() {
         return queueName;
+    }
+
+    @Override
+    public Publisher<Void> enqueueReactive(Mail mail) {
+        return Mono.fromRunnable(Throwing.runnable(() -> enQueue(mail)).sneakyThrow());
     }
 
     private void init() throws IOException {
@@ -278,7 +284,7 @@ public class FileCacheableMailQueue implements ManageableMailQueue {
                 final File msgFile = new File(fitem.getMessageFile());
                 try (ObjectInputStream oin = new ObjectInputStream(new FileInputStream(objectFile))) {
                     final Mail mail = (Mail) oin.readObject();
-                    mail.setMessage(new MimeMessageCopyOnWriteProxy(new FileMimeMessageSource(msgFile)));
+                    mail.setMessage(new MimeMessageWrapper(new FileMimeMessageSource(msgFile)));
                     MailQueueItem fileMailQueueItem = new MailQueueItem() {
 
                         @Override

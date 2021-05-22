@@ -41,7 +41,11 @@ import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.StoreMailboxManager;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.tests.RecordingMetricFactory;
 import org.apache.james.mime4j.dom.Message;
+import org.apache.james.pop3server.mailbox.DefaultMailboxAdapterFactory;
+import org.apache.james.pop3server.mailbox.MailboxAdapterFactory;
 import org.apache.james.pop3server.netty.POP3Server;
 import org.apache.james.protocols.api.utils.ProtocolServerUtils;
 import org.apache.james.protocols.lib.POP3BeforeSMTPHelper;
@@ -50,10 +54,10 @@ import org.apache.james.user.api.UsersRepository;
 import org.apache.james.user.api.UsersRepositoryException;
 import org.apache.james.user.memory.MemoryUsersRepository;
 import org.jboss.netty.util.HashedWheelTimer;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 import com.google.inject.name.Names;
 
@@ -61,11 +65,11 @@ public class POP3ServerTest {
     private static final DomainList NO_DOMAIN_LIST = null;
 
     private POP3TestConfiguration pop3Configuration;
-    private final MemoryUsersRepository usersRepository = MemoryUsersRepository.withoutVirtualHosting(NO_DOMAIN_LIST);
+    protected final MemoryUsersRepository usersRepository = MemoryUsersRepository.withoutVirtualHosting(NO_DOMAIN_LIST);
     private POP3Client pop3Client = null;
     protected MockFileSystem fileSystem;
     protected MockProtocolHandlerLoader protocolHandlerChain;
-    private StoreMailboxManager mailboxManager;
+    protected StoreMailboxManager mailboxManager;
     private final byte[] content = ("Return-path: return@test.com\r\n"
             + "Content-Transfer-Encoding: plain\r\n"
             + "Subject: test\r\n\r\n"
@@ -73,16 +77,16 @@ public class POP3ServerTest {
     private POP3Server pop3Server;
     private HashedWheelTimer hashedWheelTimer;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp() throws Exception {
         hashedWheelTimer = new HashedWheelTimer();
         setUpServiceManager();
         setUpPOP3Server();
         pop3Configuration = new POP3TestConfiguration();
     }
 
-    @After
-    public void tearDown() throws Exception {
+    @AfterEach
+    void tearDown() throws Exception {
         try {
             if (pop3Client != null) {
                 if (pop3Client.isConnected()) {
@@ -99,7 +103,7 @@ public class POP3ServerTest {
     }
 
     @Test
-    public void testAuthenticationFail() throws Exception {
+    void testAuthenticationFail() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -114,7 +118,7 @@ public class POP3ServerTest {
     }
 
     @Test
-    public void testUnknownUser() throws Exception {
+    void testUnknownUser() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -127,7 +131,7 @@ public class POP3ServerTest {
     }
 
     @Test
-    public void testKnownUserEmptyInbox() throws Exception {
+    void testKnownUserEmptyInbox() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -176,7 +180,7 @@ public class POP3ServerTest {
      */
 
     @Test
-    public void testUnknownCommand() throws Exception {
+    void testUnknownCommand() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -189,7 +193,7 @@ public class POP3ServerTest {
     }
 
     @Test
-    public void testUidlCommand() throws Exception {
+    void testUidlCommand() throws Exception {
         finishSetUp(pop3Configuration);
 
         Username username = Username.of("foo");
@@ -229,7 +233,7 @@ public class POP3ServerTest {
     }
 
     @Test
-    public void testMiscCommandsWithWithoutAuth() throws Exception {
+    void testMiscCommandsWithWithoutAuth() throws Exception {
         finishSetUp(pop3Configuration);
 
         usersRepository.addUser(Username.of("foo"), "bar");
@@ -284,7 +288,7 @@ public class POP3ServerTest {
     }
 
     @Test
-    public void testKnownUserInboxWithMessages() throws Exception {
+    void testKnownUserInboxWithMessages() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -374,7 +378,7 @@ public class POP3ServerTest {
      * Test for JAMES-1202 -  Which shows that UIDL,STAT and LIST all show the same message numbers.
      */
     @Test
-    public void testStatUidlList() throws Exception {
+    void testStatUidlList() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -422,13 +426,9 @@ public class POP3ServerTest {
 
     }
 
-    /**
-     * Test for JAMES-1202 - This was failing before as the more then one connection to the same
-     * mailbox was not handled the right way
-     */
     @Test
-    @Ignore
-    public void testStatUidlListTwoConnections() throws Exception {
+    @Disabled("Test for JAMES-1202 - This was failing before as the more then one connection to the same mailbox was not handled the right way")
+    void testStatUidlListTwoConnections() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -552,7 +552,7 @@ public class POP3ServerTest {
      */
     
     @Test
-    public void testIpStored() throws Exception {
+    void testIpStored() throws Exception {
 
         finishSetUp(pop3Configuration);
 
@@ -570,7 +570,7 @@ public class POP3ServerTest {
     }
 
     @Test
-    public void testCapa() throws Exception {
+    void testCapa() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -639,7 +639,7 @@ public class POP3ServerTest {
      */
     // See JAMES-1136
     @Test
-    public void testDeadlockOnRetr() throws Exception {
+    void testDeadlockOnRetr() throws Exception {
         finishSetUp(pop3Configuration);
 
         pop3Client = new POP3Client();
@@ -742,6 +742,8 @@ public class POP3ServerTest {
             .put(binder -> binder.bind(UsersRepository.class).toInstance(usersRepository))
             .put(binder -> binder.bind(MailboxManager.class).annotatedWith(Names.named("mailboxmanager")).toInstance(mailboxManager))
             .put(binder -> binder.bind(FileSystem.class).toInstance(fileSystem))
+            .put(binder -> binder.bind(MetricFactory.class).toInstance(new RecordingMetricFactory()))
+            .put(binder -> binder.bind(MailboxAdapterFactory.class).to(DefaultMailboxAdapterFactory.class))
             .build();
     }
 

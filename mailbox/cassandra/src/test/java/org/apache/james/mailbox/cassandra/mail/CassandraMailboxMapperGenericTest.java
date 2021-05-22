@@ -21,11 +21,14 @@ package org.apache.james.mailbox.cassandra.mail;
 
 import org.apache.james.backends.cassandra.CassandraClusterExtension;
 import org.apache.james.backends.cassandra.components.CassandraModule;
+import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
 import org.apache.james.backends.cassandra.versions.CassandraSchemaVersionDAO;
 import org.apache.james.backends.cassandra.versions.CassandraSchemaVersionModule;
 import org.apache.james.backends.cassandra.versions.SchemaVersion;
 import org.apache.james.blob.cassandra.CassandraBlobModule;
+import org.apache.james.eventsourcing.eventstore.cassandra.CassandraEventStoreModule;
 import org.apache.james.mailbox.cassandra.ids.CassandraId;
+import org.apache.james.mailbox.cassandra.ids.CassandraMessageId;
 import org.apache.james.mailbox.cassandra.mail.utils.GuiceUtils;
 import org.apache.james.mailbox.cassandra.modules.CassandraAclModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraMailboxModule;
@@ -39,11 +42,12 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 class CassandraMailboxMapperGenericTest {
     private static final CassandraModule MODULES = CassandraModule.aggregateModules(
-        CassandraBlobModule.MODULE,
-        CassandraSchemaVersionModule.MODULE,
         CassandraAclModule.MODULE,
+        CassandraBlobModule.MODULE,
+        CassandraEventStoreModule.MODULE(),
         CassandraMailboxModule.MODULE,
         CassandraModSeqModule.MODULE,
+        CassandraSchemaVersionModule.MODULE,
         CassandraUidModule.MODULE);
 
     @RegisterExtension
@@ -71,6 +75,44 @@ class CassandraMailboxMapperGenericTest {
                 .updateVersion(new SchemaVersion(7))
                 .block();
             return GuiceUtils.testInjector(cassandraCluster.getCassandraCluster())
+                .getInstance(CassandraMailboxMapper.class);
+        }
+
+        @Override
+        protected MailboxId generateId() {
+            return CassandraId.timeBased();
+        }
+    }
+
+    @Nested
+    class V10 extends MailboxMapperTest {
+        @Override
+        protected MailboxMapper createMailboxMapper() {
+            new CassandraSchemaVersionDAO(cassandraCluster.getCassandraCluster().getConf())
+                .updateVersion(new SchemaVersion(10))
+                .block();
+            return GuiceUtils.testInjector(cassandraCluster.getCassandraCluster())
+                .getInstance(CassandraMailboxMapper.class);
+        }
+
+        @Override
+        protected MailboxId generateId() {
+            return CassandraId.timeBased();
+        }
+    }
+
+    @Nested
+    class V10RelaxedConsistency extends MailboxMapperTest {
+        @Override
+        protected MailboxMapper createMailboxMapper() {
+            new CassandraSchemaVersionDAO(cassandraCluster.getCassandraCluster().getConf())
+                .updateVersion(new SchemaVersion(10))
+                .block();
+            return GuiceUtils.testInjector(cassandraCluster.getCassandraCluster().getConf(),
+                cassandraCluster.getCassandraCluster().getTypesProvider(), new CassandraMessageId.Factory(),
+                CassandraConfiguration.builder()
+                    .mailboxReadStrongConsistency(false)
+                    .build())
                 .getInstance(CassandraMailboxMapper.class);
         }
 

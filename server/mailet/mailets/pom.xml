@@ -23,7 +23,7 @@
     <parent>
         <groupId>org.apache.james</groupId>
         <artifactId>james-server</artifactId>
-        <version>3.6.0-SNAPSHOT</version>
+        <version>3.7.0-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -33,9 +33,8 @@
     <name>Apache James :: Server :: Mailets</name>
 
     <properties>
-        <spec2.version>4.9.4</spec2.version>
+        <spec2.version>4.10.6</spec2.version>
     </properties>
-
 
     <dependencies>
         <dependency>
@@ -91,11 +90,9 @@
         </dependency>
         <dependency>
             <groupId>${james.groupId}</groupId>
-            <artifactId>apache-mime4j-dom</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${james.groupId}</groupId>
-            <artifactId>apache-mime4j-james-utils</artifactId>
+            <artifactId>event-bus-api</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>${james.groupId}</groupId>
@@ -131,12 +128,12 @@
         </dependency>
         <dependency>
             <groupId>${james.groupId}</groupId>
-            <artifactId>james-server-dnsservice-test</artifactId>
-            <scope>test</scope>
+            <artifactId>james-server-dnsservice-library</artifactId>
         </dependency>
         <dependency>
             <groupId>${james.groupId}</groupId>
-            <artifactId>james-server-dnsservice-library</artifactId>
+            <artifactId>james-server-dnsservice-test</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>${james.groupId}</groupId>
@@ -188,8 +185,23 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>${james.protocols.groupId}</groupId>
+            <artifactId>protocols-managesieve</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${james.protocols.groupId}</groupId>
+            <artifactId>protocols-managesieve</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jakewharton.byteunits</groupId>
+            <artifactId>byteunits</artifactId>
+            <version>0.9.1</version>
         </dependency>
         <dependency>
             <groupId>com.sun.mail</groupId>
@@ -204,18 +216,16 @@
             <artifactId>commons-lang3</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.james</groupId>
+            <artifactId>apache-mime4j-dom</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.james</groupId>
+            <artifactId>apache-mime4j-james-utils</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.apache.james.jspf</groupId>
             <artifactId>apache-jspf-resolver</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${james.protocols.groupId}</groupId>
-            <artifactId>protocols-managesieve</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>${james.protocols.groupId}</groupId>
-            <artifactId>protocols-managesieve</artifactId>
-            <type>test-jar</type>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.hamcrest</groupId>
@@ -250,11 +260,6 @@
             <artifactId>specs2-junit_${scala.base}</artifactId>
             <version>${spec2.version}</version>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.jakewharton.byteunits</groupId>
-            <artifactId>byteunits</artifactId>
-            <version>0.9.1</version>
         </dependency>
     </dependencies>
 

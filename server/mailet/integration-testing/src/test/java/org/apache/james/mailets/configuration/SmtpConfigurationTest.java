@@ -28,7 +28,7 @@ import java.io.IOException;
 import javax.xml.transform.Source;
 
 import org.assertj.core.api.Assertions;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.w3c.dom.Node;
 import org.xmlunit.builder.Input;
 import org.xmlunit.xpath.JAXPXPathEngine;
@@ -147,9 +147,9 @@ public class SmtpConfigurationTest {
     }
 
     @Test
-    public void verifyIdentityShouldBeEnforcedByDefault() throws IOException {
+    public void verifyIdentityShouldBeDisabledByDefault() throws IOException {
         assertThat(SmtpConfiguration.DEFAULT.serializeAsXml(),
             hasXPath("/smtpservers/smtpserver/verifyIdentity/text()",
-                is("true")));
+                is("false")));
     }
 }

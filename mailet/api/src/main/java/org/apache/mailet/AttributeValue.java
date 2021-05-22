@@ -22,11 +22,13 @@ package org.apache.mailet;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.URL;
+import java.time.ZonedDateTime;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.mailbox.model.MessageIdDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +37,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.steveash.guavate.Guavate;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 
@@ -69,6 +72,11 @@ public class AttributeValue<T> {
     public static AttributeValue<Float> of(Float value) {
         Preconditions.checkNotNull(value, "value should not be null");
         return new AttributeValue<>(value, Serializer.FLOAT_SERIALIZER);
+    }
+
+    public static AttributeValue<ZonedDateTime> of(ZonedDateTime value) {
+        Preconditions.checkNotNull(value, "value should not be null");
+        return new AttributeValue<>(value, Serializer.DATE_SERIALIZER);
     }
 
     public static AttributeValue<Double> of(Double value) {
@@ -133,6 +141,9 @@ public class AttributeValue<T> {
         }
         if (value instanceof Double) {
             return of((Double) value);
+        }
+        if (value instanceof ZonedDateTime) {
+            return of((ZonedDateTime) value);
         }
         if (value instanceof Collection<?>) {
             return of(((Collection<AttributeValue<?>>) value));
@@ -209,12 +220,25 @@ public class AttributeValue<T> {
     }
 
     public <U> Optional<U> valueAs(Class<U> type) {
-        return tryToCast(type, value);
+        return asAttributeValueOf(type).map(AttributeValue::value);
     }
 
-    private static <U> Optional<U> tryToCast(Class<U> type, Object value) {
+    public <U> Optional<AttributeValue<U>> asAttributeValueOf(Class<U> type) {
         if (type.isInstance(value)) {
-            return Optional.of(type.cast(value));
+            return Optional.of((AttributeValue<U>) this);
+        } else {
+            return Optional.empty();
+        }
+    }
+    
+    public <U> Optional<AttributeValue<Map<String, AttributeValue<U>>>> asMapAttributeValueOf(Class<U> type) {
+        if (Map.class.isInstance(value)) {
+            Map<String, AttributeValue<?>> aMap = (Map<String, AttributeValue<?>>) value;
+            Map<String, AttributeValue<U>> castedMap = aMap.entrySet()
+                .stream()
+                .flatMap(entry -> entry.getValue().asAttributeValueOf(type).stream().map(castedValue -> Pair.of(entry.getKey(), castedValue)))
+                .collect(Guavate.toImmutableMap(Pair::getKey, Pair::getValue));
+            return Optional.of(new AttributeValue<>(castedMap, new Serializer.MapSerializer()));
         } else {
             return Optional.empty();
         }

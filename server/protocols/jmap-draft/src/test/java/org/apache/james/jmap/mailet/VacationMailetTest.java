@@ -33,7 +33,7 @@ import java.util.Optional;
 import javax.mail.MessagingException;
 
 import org.apache.james.core.MailAddress;
-import org.apache.james.jmap.api.vacation.AccountId;
+import org.apache.james.jmap.api.model.AccountId;
 import org.apache.james.jmap.api.vacation.NotificationRegistry;
 import org.apache.james.jmap.api.vacation.RecipientId;
 import org.apache.james.jmap.api.vacation.Vacation;
@@ -245,6 +245,26 @@ public class VacationMailetTest {
         FakeMail mail = FakeMail.builder()
             .name("name")
             .fileName("spamMail.eml")
+            .recipient(originalRecipient)
+            .sender(new MailAddress("distant-noreply@apache.org"))
+            .build();
+
+        when(vacationRepository.retrieveVacation(AccountId.fromString(USERNAME)))
+            .thenReturn(Mono.just(VACATION));
+        when(zonedDateTimeProvider.get()).thenReturn(DATE_TIME_2017);
+        when(notificationRegistry.isRegistered(any(), any())).thenReturn(Mono.just(false));
+        when(automaticallySentMailDetector.isAutomaticallySent(mail)).thenReturn(false);
+
+        testee.service(mail);
+
+        verifyNoMoreInteractions(mailetContext);
+    }
+
+    @Test
+    public void serviceShouldNotSendNotificationToEmptyReplyTo() throws Exception {
+        FakeMail mail = FakeMail.builder()
+            .name("name")
+            .fileName("noReplyTo.eml")
             .recipient(originalRecipient)
             .sender(new MailAddress("distant-noreply@apache.org"))
             .build();

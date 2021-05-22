@@ -30,17 +30,21 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.Date;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
 
 import javax.mail.Flags;
 
 import org.apache.james.core.Username;
+import org.apache.james.events.Event;
+import org.apache.james.events.EventBus;
+import org.apache.james.events.EventListener;
+import org.apache.james.events.Registration;
 import org.apache.james.imap.encode.FakeImapSession;
 import org.apache.james.imap.processor.base.SelectedMailboxImpl.ApplicableFlags;
 import org.apache.james.mailbox.FlagsBuilder;
@@ -50,11 +54,8 @@ import org.apache.james.mailbox.MailboxSessionUtil;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.ModSeq;
-import org.apache.james.mailbox.events.Event;
-import org.apache.james.mailbox.events.EventBus;
+import org.apache.james.mailbox.events.MailboxEvents.FlagsUpdated;
 import org.apache.james.mailbox.events.MailboxIdRegistrationKey;
-import org.apache.james.mailbox.events.MailboxListener;
-import org.apache.james.mailbox.events.Registration;
 import org.apache.james.mailbox.model.Mailbox;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.MessageMetaData;
@@ -74,6 +75,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableList;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 
@@ -115,7 +117,8 @@ class SelectedMailboxImplTest {
         when(messageManager.getApplicableFlags(any(MailboxSession.class)))
             .thenReturn(new Flags());
         when(messageManager.search(any(SearchQuery.class), any(MailboxSession.class)))
-            .then(delayedSearchAnswer());
+            .thenReturn(Flux.just(MessageUid.of(1), MessageUid.of(3))
+                .delayElements(Duration.ofSeconds(1)));
         when(messageManager.getId()).thenReturn(mailboxId);
 
         imapSession.setMailboxSession(mock(MailboxSession.class));
@@ -134,7 +137,7 @@ class SelectedMailboxImplTest {
         AtomicInteger successCount = new AtomicInteger(0);
         doAnswer(generateEmitEventAnswer(successCount))
             .when(eventBus)
-            .register(any(MailboxListener.class), eq(mailboxIdRegistrationKey));
+            .register(any(EventListener.class), eq(mailboxIdRegistrationKey));
         SelectedMailboxImpl selectedMailbox = new SelectedMailboxImpl(
             mailboxManager,
             eventBus,
@@ -149,7 +152,7 @@ class SelectedMailboxImplTest {
         AtomicInteger successCount = new AtomicInteger(0);
         doAnswer(generateEmitCustomFlagEventAnswer(successCount))
             .when(eventBus)
-            .register(any(MailboxListener.class), eq(mailboxIdRegistrationKey));
+            .register(any(EventListener.class), eq(mailboxIdRegistrationKey));
 
         new SelectedMailboxImpl(mailboxManager, eventBus, imapSession, messageManager);
 
@@ -161,7 +164,7 @@ class SelectedMailboxImplTest {
         AtomicInteger successCount = new AtomicInteger(0);
         doAnswer(generateEmitCustomFlagEventAnswer(successCount))
             .when(eventBus)
-            .register(any(MailboxListener.class), eq(mailboxIdRegistrationKey));
+            .register(any(EventListener.class), eq(mailboxIdRegistrationKey));
 
         SelectedMailboxImpl selectedMailbox = new SelectedMailboxImpl(mailboxManager, eventBus, imapSession, messageManager);
 
@@ -173,7 +176,7 @@ class SelectedMailboxImplTest {
         AtomicInteger successCount = new AtomicInteger(0);
         doAnswer(generateEmitEventAnswer(successCount))
             .when(eventBus)
-            .register(any(MailboxListener.class), eq(mailboxIdRegistrationKey));
+            .register(any(EventListener.class), eq(mailboxIdRegistrationKey));
 
         new SelectedMailboxImpl(
             mailboxManager,
@@ -184,13 +187,6 @@ class SelectedMailboxImplTest {
         assertThat(successCount.get())
             .as("Get the incremented value in case of successful event processing.")
             .isEqualTo(1);
-    }
-
-    Answer<Stream<MessageUid>> delayedSearchAnswer() {
-        return invocation -> {
-            Thread.sleep(1000);
-            return Stream.of(MessageUid.of(1), MessageUid.of(3));
-        };
     }
 
     Answer<Mono<Registration>> generateEmitEventAnswer(AtomicInteger success) {
@@ -204,10 +200,10 @@ class SelectedMailboxImplTest {
     Answer<Mono<Registration>> generateEmitEventAnswer(Event event, AtomicInteger success) {
         return invocation -> {
             Object[] args = invocation.getArguments();
-            MailboxListener mailboxListener = (MailboxListener) args[0];
+            EventListener eventListener = (EventListener) args[0];
             executorService.submit(() -> {
                 try {
-                    mailboxListener.event(event);
+                    eventListener.event(event);
                     success.incrementAndGet();
                 } catch (Exception e) {
                     LOGGER.error("Error while processing event on a concurrent thread", e);
@@ -245,7 +241,7 @@ class SelectedMailboxImplTest {
         @Test
         void updateApplicableFlagsShouldNotUpdateWhenEmptyFlagsUpdate() {
             ApplicableFlags applicableFlags = ApplicableFlags.from(flagsBuilder().add(SEEN).build());
-            MailboxListener.FlagsUpdated flagsUpdated = flagsUpdated(updatedFlags().noOldFlag().noNewFlag());
+            FlagsUpdated flagsUpdated = flagsUpdated(updatedFlags().noOldFlag().noNewFlag());
             ApplicableFlags actual = SelectedMailboxImpl.updateApplicableFlags(applicableFlags, flagsUpdated);
             assertThat(actual).satisfies(ap -> {
                 assertThat(ap.updated()).isFalse();
@@ -256,7 +252,7 @@ class SelectedMailboxImplTest {
         @Test
         void updateApplicableFlagsShouldNotUpdateWhenNewFlag() {
             ApplicableFlags applicableFlags = ApplicableFlags.from(flagsBuilder().add(SEEN).build());
-            MailboxListener.FlagsUpdated flagsUpdated =
+            FlagsUpdated flagsUpdated =
                 flagsUpdated(updatedFlags().noOldFlag().newFlags(flags -> flags.add(ANSWERED)));
             ApplicableFlags actual = SelectedMailboxImpl.updateApplicableFlags(applicableFlags, flagsUpdated);
             assertThat(actual).satisfies(ap -> {
@@ -268,7 +264,7 @@ class SelectedMailboxImplTest {
         @Test
         void updateApplicableFlagsShouldNotUpdateWhenSeveralUpdatedFlagsNewFlag() {
             ApplicableFlags applicableFlags = ApplicableFlags.from(flagsBuilder().add(SEEN).build());
-            MailboxListener.FlagsUpdated flagsUpdated =
+            FlagsUpdated flagsUpdated =
                 flagsUpdated(
                     updatedFlags().noOldFlag().newFlags(flags -> flags.add(ANSWERED)),
                     updatedFlags().noOldFlag().newFlags(flags -> flags.add(FLAGGED)));
@@ -282,7 +278,7 @@ class SelectedMailboxImplTest {
         @Test
         void updateApplicableFlagsShouldNotUpdateWhenOldFlagRemoved() {
             ApplicableFlags applicableFlags = ApplicableFlags.from(flagsBuilder().add(SEEN).build());
-            MailboxListener.FlagsUpdated flagsUpdated =
+            FlagsUpdated flagsUpdated =
                 flagsUpdated(updatedFlags().oldFlags(flags -> flags.add(SEEN)).noNewFlag());
             ApplicableFlags actual = SelectedMailboxImpl.updateApplicableFlags(applicableFlags, flagsUpdated);
             assertThat(actual).satisfies(ap -> {
@@ -294,7 +290,7 @@ class SelectedMailboxImplTest {
         @Test
         void updateApplicableFlagsShouldNotIncludeRecent() {
             ApplicableFlags applicableFlags = ApplicableFlags.from(flagsBuilder().add(SEEN).build());
-            MailboxListener.FlagsUpdated flagsUpdated =
+            FlagsUpdated flagsUpdated =
                 flagsUpdated(updatedFlags().noOldFlag().newFlags(flags -> flags.add(RECENT)));
             ApplicableFlags actual = SelectedMailboxImpl.updateApplicableFlags(applicableFlags, flagsUpdated);
             assertThat(actual).satisfies(ap -> {
@@ -306,7 +302,7 @@ class SelectedMailboxImplTest {
         @Test
         void updateApplicableFlagsShouldUpdateWhenNewUserFlag() {
             ApplicableFlags applicableFlags = ApplicableFlags.from(flagsBuilder().add(SEEN).build());
-            MailboxListener.FlagsUpdated flagsUpdated =
+            FlagsUpdated flagsUpdated =
                 flagsUpdated(updatedFlags().noOldFlag().newFlags(flags -> flags.add("Foo")));
             ApplicableFlags actual = SelectedMailboxImpl.updateApplicableFlags(applicableFlags, flagsUpdated);
             assertThat(actual).satisfies(ap -> {
@@ -320,8 +316,8 @@ class SelectedMailboxImplTest {
         return FlagsBuilder.builder();
     }
 
-    private MailboxListener.FlagsUpdated flagsUpdated(UpdatedFlags... updatedFlags) {
-        return new MailboxListener.FlagsUpdated(
+    private FlagsUpdated flagsUpdated(UpdatedFlags... updatedFlags) {
+        return new FlagsUpdated(
             SESSION_ID,
             BOB,
             mailboxPath,

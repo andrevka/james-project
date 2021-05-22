@@ -19,6 +19,8 @@
 
 package org.apache.james.transport.mailets;
 
+import static org.apache.james.transport.mailets.remote.delivery.Bouncer.DELIVERY_ERROR;
+
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.LocalDateTime;
@@ -27,10 +29,12 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.inject.Inject;
 import javax.mail.MessagingException;
@@ -39,6 +43,7 @@ import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeBodyPart;
 import javax.mail.internet.MimeMessage;
 
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.james.core.MailAddress;
 import org.apache.james.core.MaybeSender;
 import org.apache.james.dnsservice.api.DNSService;
@@ -59,8 +64,11 @@ import org.apache.james.transport.util.ReplyToUtils;
 import org.apache.james.transport.util.SenderUtils;
 import org.apache.james.transport.util.SpecialAddressesUtils;
 import org.apache.james.transport.util.TosUtils;
+import org.apache.mailet.Attribute;
 import org.apache.mailet.AttributeName;
 import org.apache.mailet.AttributeUtils;
+import org.apache.mailet.AttributeValue;
+import org.apache.mailet.DsnParameters;
 import org.apache.mailet.Mail;
 import org.apache.mailet.base.DateFormats;
 import org.apache.mailet.base.GenericMailet;
@@ -73,9 +81,10 @@ import com.google.common.collect.ImmutableSet;
 
 /**
  * <p>
- * Generates a Delivery Status Notification (DSN) Note that this is different
- * than a mail-client's reply, which would use the Reply-To or From header.
- * </p>
+ * Generates a Delivery Status Notification (DSN) as per RFC-3464 An Extensible Message Format for Delivery Status
+ * Notifications (https://tools.ietf.org/html/rfc3464).</p>
+ *
+ * <p>Note that this is different than a mail-client's reply, which would use the Reply-To or From header.</p>
  * <p>
  * Bounced messages are attached in their entirety (headers and content) and the
  * resulting MIME part type is "message/rfc822".<br>
@@ -104,17 +113,55 @@ import com.google.common.collect.ImmutableSet;
  *   &lt;messageString&gt;<i>the message sent in the bounce, the first occurrence of the pattern [machine] is replaced with the name of the executing machine, default=Hi. This is the James mail server at [machine] ... </i>&lt;/messageString&gt;
  *   &lt;passThrough&gt;<i>true or false, default=true</i>&lt;/passThrough&gt;
  *   &lt;debug&gt;<i>true or false, default=false</i>&lt;/debug&gt;
+ *   &lt;action&gt;<i>failed, delayed, delivered, expanded or relayed, default=failed</i>&lt;/action&gt;
+ *   &lt;defaultStatus&gt;<i>SMTP status code. Try to adapt it to the mailet position: 2.0.0 for success, 4.0.0 for delays, 5.0.0 for failures default=unknown</i>&lt;/defaultStatus&gt;  &lt;!-- See https://tools.ietf.org/html/rfc3463 --&gt;
  * &lt;/mailet&gt;
  * </code>
  * </pre>
  *
- * @see org.apache.james.transport.mailets.AbstractNotify
+ * Possible values for defaultStatus (X being a digit):
+ *  - General structure is X.XXX.XXX
+ *  - 2.XXX.XXX indicates success and is suitable for relayed, delivered and expanded actions. 2.0.0 provides no further information.
+ *  - 4.XXX.XXX indicates transient failures and is suitable for delayed action. 4.0.0 provides no further information.
+ *  - 5.XXX.XXX indicates permanent failures and is suitable for failed. 5.0.0 provides no further information.
+ *
+ * @see RedirectNotify
  */
 
 public class DSNBounce extends GenericMailet implements RedirectNotify {
     private static final Logger LOGGER = LoggerFactory.getLogger(DSNBounce.class);
 
-    private static final ImmutableSet<String> CONFIGURABLE_PARAMETERS = ImmutableSet.of("debug", "passThrough", "messageString", "attachment", "sender", "prefix");
+    enum Action {
+        DELIVERED("Delivered", false),
+        DELAYED("Delayed", true),
+        FAILED("Failed", true),
+        EXPANDED("Expanded", false),
+        RELAYED("Relayed", false);
+
+        public static Optional<Action> parse(String serialized) {
+            return Stream.of(Action.values())
+                .filter(value -> value.asString().equalsIgnoreCase(serialized))
+                .findFirst();
+        }
+
+        private final String value;
+        private final boolean shouldIncludeDiagnosticCode;
+
+        Action(String value, boolean shouldIncludeDiagnosticCode) {
+            this.value = value;
+            this.shouldIncludeDiagnosticCode = shouldIncludeDiagnosticCode;
+        }
+
+        public String asString() {
+            return value;
+        }
+
+        public boolean shouldIncludeDiagnostic() {
+            return shouldIncludeDiagnosticCode;
+        }
+    }
+
+    private static final ImmutableSet<String> CONFIGURABLE_PARAMETERS = ImmutableSet.of("debug", "passThrough", "messageString", "attachment", "sender", "prefix", "action", "defaultStatus");
     private static final List<MailAddress> RECIPIENT_MAIL_ADDRESSES = ImmutableList.of(SpecialAddress.REVERSE_PATH);
     private static final List<InternetAddress> TO_INTERNET_ADDRESSES = ImmutableList.of(SpecialAddress.REVERSE_PATH.toInternetAddress());
 
@@ -122,11 +169,12 @@ public class DSNBounce extends GenericMailet implements RedirectNotify {
     private static final Pattern DIAG_PATTERN = Patterns.compilePatternUncheckedException("^\\d{3}\\s.*$");
     private static final String MACHINE_PATTERN = "[machine]";
     private static final String LINE_BREAK = "\n";
-    private static final AttributeName DELIVERY_ERROR = AttributeName.of("delivery-error");
 
     private final DNSService dns;
     private final DateTimeFormatter dateFormatter;
     private String messageString = null;
+    private Action action = null;
+    private String defaultStatus;
 
     @Inject
     public DSNBounce(DNSService dns) {
@@ -155,6 +203,11 @@ public class DSNBounce extends GenericMailet implements RedirectNotify {
         }
         messageString = getInitParameter("messageString",
                 "Hi. This is the James mail server at [machine].\nI'm afraid I wasn't able to deliver your message to the following addresses.\nThis is a permanent error; I've given up. Sorry it didn't work out.  Below\nI include the list of recipients and the reason why I was unable to deliver\nyour message.\n");
+        action = Optional.ofNullable(getInitParameter("action", null))
+            .map(configuredValue -> Action.parse(configuredValue)
+                .orElseThrow(() -> new IllegalArgumentException("Action '" + configuredValue + "' is not supported")))
+            .orElse(Action.FAILED);
+        defaultStatus = getInitParameter("defaultStatus", "unknown");
     }
 
     @Override
@@ -347,24 +400,49 @@ public class DSNBounce extends GenericMailet implements RedirectNotify {
         multipart.addBodyPart(createTextMsg(originalMail));
         multipart.addBodyPart(createDSN(originalMail));
         if (!getInitParameters().getAttachmentType().equals(TypeCode.NONE)) {
-            multipart.addBodyPart(createAttachedOriginal(originalMail, getInitParameters().getAttachmentType()));
+            multipart.addBodyPart(createAttachedOriginal(originalMail, getAttachmentType(originalMail)));
         }
         return multipart;
+    }
+
+    private TypeCode getAttachmentType(Mail originalMail) {
+        return originalMail.dsnParameters()
+            .flatMap(DsnParameters::getRetParameter)
+            .map(ret -> {
+                switch (ret) {
+                    case HDRS:
+                        return TypeCode.HEADS;
+                    case FULL:
+                        return TypeCode.MESSAGE;
+                    default:
+                        throw new NotImplementedException("Unknown RET parameter: " + ret);
+                }
+            })
+            .orElse(getInitParameters().getAttachmentType());
     }
 
     private MimeBodyPart createTextMsg(Mail originalMail) throws MessagingException {
         StringBuilder builder = new StringBuilder();
 
         builder.append(bounceMessage()).append(LINE_BREAK);
-        builder.append("Failed recipient(s):").append(LINE_BREAK);
+        Optional.ofNullable(originalMail.getMessage().getSubject())
+            .ifPresent(subject -> builder.append("Original email subject: ").append(subject).append(LINE_BREAK).append(LINE_BREAK));
+        builder.append(action.asString()).append(" recipient(s):").append(LINE_BREAK);
         builder.append(originalMail.getRecipients()
                 .stream()
                 .map(MailAddress::asString)
                 .collect(Collectors.joining(", ")));
         builder.append(LINE_BREAK).append(LINE_BREAK);
-        builder.append("Error message:").append(LINE_BREAK);
-        builder.append(AttributeUtils.getValueAndCastFromMail(originalMail, DELIVERY_ERROR, String.class).orElse("")).append(LINE_BREAK);
-        builder.append(LINE_BREAK);
+        if (action.shouldIncludeDiagnostic()) {
+            Optional<String> deliveryError = AttributeUtils.getValueAndCastFromMail(originalMail, DELIVERY_ERROR, String.class);
+
+            deliveryError.or(() -> Optional.ofNullable(originalMail.getErrorMessage()))
+                .ifPresent(message -> {
+                    builder.append("Error message:").append(LINE_BREAK);
+                    builder.append(message).append(LINE_BREAK);
+                    builder.append(LINE_BREAK);
+                });
+        }
 
         MimeBodyPart bodyPart = new MimeBodyPart();
         bodyPart.setText(builder.toString());
@@ -395,6 +473,20 @@ public class DSNBounce extends GenericMailet implements RedirectNotify {
         buffer.append("Received-From-MTA: dns; " + originalMail.getRemoteHost())
             .append(LINE_BREAK);
 
+        originalMail.dsnParameters()
+            .flatMap(DsnParameters::getEnvIdParameter)
+            .ifPresent(envId -> buffer.append("Original-Envelope-Id: ")
+                .append(envId.asString())
+                .append(LINE_BREAK));
+        originalMail.getAttribute(AttributeName.of("dsn-arrival-date"))
+            .map(Attribute::getValue)
+            .map(AttributeValue::value)
+            .filter(ZonedDateTime.class::isInstance)
+            .map(ZonedDateTime.class::cast)
+            .ifPresent(arrivalDate -> buffer.append("Arrival-Date: ")
+                .append(arrivalDate.format(dateFormatter))
+                .append(LINE_BREAK));
+
         for (MailAddress rec : originalMail.getRecipients()) {
             appendRecipient(buffer, rec, getDeliveryError(originalMail), originalMail.getLastUpdated());
         }
@@ -419,9 +511,11 @@ public class DSNBounce extends GenericMailet implements RedirectNotify {
     private void appendRecipient(StringBuffer buffer, MailAddress mailAddress, String deliveryError, Date lastUpdated) {
         buffer.append(LINE_BREAK);
         buffer.append("Final-Recipient: rfc822; " + mailAddress.toString()).append(LINE_BREAK);
-        buffer.append("Action: failed").append(LINE_BREAK);
+        buffer.append("Action: ").append(action.asString().toLowerCase(Locale.US)).append(LINE_BREAK);
         buffer.append("Status: " + deliveryError).append(LINE_BREAK);
-        buffer.append("Diagnostic-Code: " + getDiagnosticType(deliveryError) + "; " + deliveryError).append(LINE_BREAK);
+        if (action.shouldIncludeDiagnostic()) {
+            buffer.append("Diagnostic-Code: " + getDiagnosticType(deliveryError) + "; " + deliveryError).append(LINE_BREAK);
+        }
         buffer.append("Last-Attempt-Date: " + dateFormatter.format(ZonedDateTime.ofInstant(lastUpdated.toInstant(), ZoneId.systemDefault())))
             .append(LINE_BREAK);
     }
@@ -429,7 +523,7 @@ public class DSNBounce extends GenericMailet implements RedirectNotify {
     private String getDeliveryError(Mail originalMail) {
         return AttributeUtils
             .getValueAndCastFromMail(originalMail, DELIVERY_ERROR, String.class)
-            .orElse("unknown");
+            .orElse(defaultStatus);
     }
 
     private String getDiagnosticType(String diagnosticCode) {

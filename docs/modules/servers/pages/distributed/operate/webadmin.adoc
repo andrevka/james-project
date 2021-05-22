@@ -450,8 +450,25 @@ Response codes:
 
 * 204: The user was successfully created
 * 400: The user name or the payload is invalid
+* 409: The user name already exists
 
-Note: if the user exists already, its password will be updated.
+Note: If the user exists already, its password cannot be updated using this.
+If you want to update a user's password, please have a look at *Update a user password* below.
+
+=== Updating a user password
+
+....
+curl -XPUT http://ip:port/users/usernameToBeUsed?force \
+  -d '{"password":"passwordToBeUsed"}' \
+  -H "Content-Type: application/json"
+....
+
+Response codes:
+
+- 204: The user's password was successfully updated
+- 400: The user name or the payload is invalid
+
+This also can be used to create a new user.
 
 === Testing a user existence
 
@@ -467,12 +484,6 @@ Response codes:
 * 200: The user exists
 * 400: The user name is invalid
 * 404: The user does not exist
-
-=== Updating a user password
-
-Same than Create, but a user need to exist.
-
-If the user do not exist, then it will be created.
 
 === Deleting a user
 
@@ -852,6 +863,35 @@ The scheduled task will have the following type
 }
 ....
 
+===== Create missing parent mailboxes
+
+Will schedule a task for creating all the missing parent mailboxes in a hierarchical mailbox tree, which is the result
+of a partially failed rename operation of a child mailbox.
+
+....
+curl -XPOST http://ip:port/mailboxes?task=createMissingParents
+....
+
+link:#_endpoints_returning_a_task[More details about endpoints returning
+a task].
+
+Response codes:
+
+* 201: Success. Corresponding task id is returned.
+* 400: Error in the request. Details can be found in the reported error.
+
+The scheduled task will have the following type `createMissingParents` and the following `additionalInformation`:
+
+....
+{
+  "type":"createMissingParents"
+  "created": ["1", "2" ],
+  "totalCreated": 2,
+  "failures": [],
+  "totalFailure": 0
+}
+....
+
 === Single mailbox
 
 ==== ReIndexing a mailbox mails
@@ -1097,8 +1137,7 @@ curl -XPUT http://ip:port/users/{usernameToBeUsed}/mailboxes/{mailboxNameToBeCre
 ....
 
 Resource name `usernameToBeUsed` should be an existing user Resource
-name `mailboxNameToBeCreated` should not be empty, nor contain # % *
-characters.
+name `mailboxNameToBeCreated` should not be empty, nor contain % * characters, nor starting with #.
 
 Response codes:
 
@@ -1279,6 +1318,37 @@ leave the currently reIndexed mailbox as partially indexed.
 Warning: While we have been trying to reduce the inconsistency window to
 a maximum (by keeping track of ongoing events), concurrent changes done
 during the reIndexing might be ignored.
+
+=== Subscribing a user to all of its mailboxes
+
+....
+curl -XPOST http://ip:port/users/{usernameToBeUsed}/mailboxes?task=subscribeAll
+....
+
+Will schedule a task for subscribing a user to all of its mailboxes.
+
+link:#_endpoints_returning_a_task[More details about endpoints returning
+a task].
+
+Most users are unaware of what an IMAP subscription is, nor how they can manage it. If the subscription list gets out
+of sync with the mailbox list, it could result in downgraded user experience (see MAILBOX-405). This task allow
+to reset the subscription list to the mailbox list on a per user basis thus working around the aforementioned issues.
+
+Response codes:
+
+- 201: Success. Corresponding task id is returned.
+- 404: No such user
+
+The scheduled task will have the following type `SubscribeAllTask` and the following `additionalInformation`:
+
+....
+{
+  "type":"SubscribeAllTask",
+  "username":"user@domain.com",
+  "subscribedCount":18,
+  "unsubscribedCount": 3
+}
+....
 
 === Recomputing User JMAP fast message view projection
 

@@ -24,8 +24,12 @@ import static org.apache.james.backends.rabbitmq.RabbitMQFixture.DEFAULT_USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Arrays;
+import java.util.Optional;
 
 import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.junit.jupiter.api.Nested;
@@ -334,6 +338,55 @@ class RabbitMQConfigurationTest {
             .isEqualTo(shutdownTimeout);
     }
 
+    @Test
+    void sslConfigurationShouldHaveDefaultWhenNotSpecifiedOtherwise() throws URISyntaxException {
+        RabbitMQConfiguration rabbitMQConfiguration = RabbitMQConfiguration.builder()
+                .amqpUri(new URI("amqp://james:james@rabbitmq_host:5672"))
+                .managementUri(new URI("http://james:james@rabbitmq_host:15672/api/"))
+                .managementCredentials(DEFAULT_MANAGEMENT_CREDENTIAL)
+                .build();
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getHostNameVerifier())
+                .isEqualTo(RabbitMQConfiguration.SSLConfiguration.HostNameVerifier.DEFAULT);
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getStrategy())
+                .isEqualTo(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.DEFAULT);
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getTrustStore())
+                .isEmpty();
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getKeyStore())
+                .isEmpty();
+    }
+
+    @Test
+    void sslConfigurationShouldHaveCustomValuesIfUseInConfiguration() throws URISyntaxException {
+        RabbitMQConfiguration rabbitMQConfiguration = RabbitMQConfiguration.builder()
+                .amqpUri(new URI("amqp://james:james@rabbitmq_host:5672"))
+                .managementUri(new URI("http://james:james@rabbitmq_host:15672/api/"))
+                .managementCredentials(DEFAULT_MANAGEMENT_CREDENTIAL)
+                .sslConfiguration(
+                        RabbitMQConfiguration.SSLConfiguration.builder()
+                            .strategyOverride(RabbitMQConfiguration.SSLConfiguration.SSLTrustStore.of("src/test/resources/test-truststore-password-password", "password"))
+                            .acceptAnyHostNameVerifier()
+                            .sslKeyStore(Optional.of(RabbitMQConfiguration.SSLConfiguration.SSLKeyStore.of("src/test/resources/test-keystore-password-password", "password")))
+                            .build()
+                )
+                .build();
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getHostNameVerifier())
+                .isEqualTo(RabbitMQConfiguration.SSLConfiguration.HostNameVerifier.ACCEPT_ANY_HOSTNAME);
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getStrategy())
+                .isEqualTo(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.OVERRIDE);
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getTrustStore())
+                .isNotEmpty();
+
+        assertThat(rabbitMQConfiguration.getSslConfiguration().getKeyStore())
+                .isNotEmpty();
+    }
+
     @Nested
     class ManagementCredentialsTest {
         @Test
@@ -386,5 +439,87 @@ class RabbitMQConfigurationTest {
             assertThat(RabbitMQConfiguration.ManagementCredentials.from(configuration))
                 .isEqualTo(credentialWithUserAndPassword);
         }
+    }
+
+    @Nested
+    class SSLConfigurationTest {
+
+        @Nested
+        class SSLValidationStrategyTest {
+
+            @Test
+            void fromShouldThrowExceptionWhenUnknownStrategyNameSupplied() {
+                assertThatThrownBy(() -> RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.from("random"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            void fromShouldReturnWhenCorrectNamesAreUsed() {
+                assertThat(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.from("default"))
+                    .isEqualTo(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.DEFAULT);
+
+                assertThat(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.from("override"))
+                        .isEqualTo(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.OVERRIDE);
+
+                assertThat(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.from("ignore"))
+                        .isEqualTo(RabbitMQConfiguration.SSLConfiguration.SSLValidationStrategy.IGNORE);
+            }
+
+        }
+
+        @Nested
+        class HostNameVerifierTest {
+
+            @Test
+            void fromShouldThrowExceptionWhenUnknownStrategyNameSupplied() {
+                assertThatThrownBy(() -> RabbitMQConfiguration.SSLConfiguration.HostNameVerifier.from("random"))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            void fromShouldReturnWhenCorrectNamesAreUsed() {
+                assertThat(RabbitMQConfiguration.SSLConfiguration.HostNameVerifier.from("default"))
+                        .isEqualTo(RabbitMQConfiguration.SSLConfiguration.HostNameVerifier.DEFAULT);
+
+                assertThat(RabbitMQConfiguration.SSLConfiguration.HostNameVerifier.from("accept_any_hostname"))
+                        .isEqualTo(RabbitMQConfiguration.SSLConfiguration.HostNameVerifier.ACCEPT_ANY_HOSTNAME);
+
+            }
+
+        }
+
+        @Nested
+        class SSLTrustStoreTest {
+
+            @Test
+            void ofShouldThrowExceptionWhenFilePathNotSupplied() {
+                assertThatThrownBy(() -> RabbitMQConfiguration.SSLConfiguration.SSLTrustStore.of(null, "password"))
+                    .isInstanceOf(NullPointerException.class);
+            }
+
+            @Test
+            void ofShouldThrowExceptionWhenPasswordNotSupplied() {
+                assertThatThrownBy(() -> RabbitMQConfiguration.SSLConfiguration.SSLTrustStore.of("/path/to/file", null))
+                        .isInstanceOf(NullPointerException.class);
+            }
+
+            @Test
+            void ofShouldThrowExceptionWhenFileDoesNotExist() {
+                assertThatThrownBy(() -> RabbitMQConfiguration.SSLConfiguration.SSLTrustStore.of("/does/not/exist", "password"))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            void ofShouldReturnWhenCorrectAttributesUsed() throws IOException {
+                File tempFile = File.createTempFile("for-james-test", "");
+                tempFile.deleteOnExit();
+
+                assertThat(RabbitMQConfiguration.SSLConfiguration.SSLTrustStore.of(tempFile.getAbsolutePath(), "password"))
+                        .matches(sslTrustStore -> sslTrustStore.getFile().equals(tempFile))
+                        .matches(sslTrustStore -> Arrays.equals(sslTrustStore.getPassword(), "password".toCharArray()));
+            }
+
+        }
+
     }
 }

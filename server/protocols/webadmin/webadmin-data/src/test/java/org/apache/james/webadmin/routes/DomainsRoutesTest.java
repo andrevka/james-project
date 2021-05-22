@@ -92,7 +92,10 @@ class DomainsRoutesTest {
             when(dnsService.getLocalHost()).thenReturn(InetAddress.getByName("localhost"));
 
             MemoryDomainList domainList = new MemoryDomainList(dnsService);
-            domainList.setAutoDetectIP(false);
+            domainList.configure(DomainListConfiguration.builder()
+                .autoDetect(false)
+                .autoDetectIp(false)
+                .build());
             createServer(domainList);
         }
 
@@ -103,7 +106,7 @@ class DomainsRoutesTest {
             .then()
                 .statusCode(HttpStatus.OK_200)
                 .contentType(ContentType.JSON)
-                .body(".", hasSize(0));
+                .body(".", contains("localhost"));
         }
 
         @Test
@@ -140,7 +143,7 @@ class DomainsRoutesTest {
             .then()
                 .contentType(ContentType.JSON)
                 .statusCode(HttpStatus.OK_200)
-                .body(".", contains(DOMAIN));
+                .body(".", containsInAnyOrder(DOMAIN, "localhost"));
         }
 
         @Test
@@ -248,7 +251,7 @@ class DomainsRoutesTest {
             .then()
                 .contentType(ContentType.JSON)
                 .statusCode(HttpStatus.OK_200)
-                .body(".", hasSize(0));
+                .body(".", contains("localhost"));
         }
 
         @Test

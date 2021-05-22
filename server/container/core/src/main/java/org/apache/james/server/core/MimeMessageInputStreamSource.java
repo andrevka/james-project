@@ -23,8 +23,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.mail.MessagingException;
 import javax.mail.util.SharedByteArrayInputStream;
@@ -39,15 +39,17 @@ import org.apache.james.lifecycle.api.Disposable;
  * Takes an input stream and creates a repeatable input stream source for a
  * MimeMessageWrapper. It does this by completely reading the input stream and
  * saving that to data to an {@link DeferredFileOutputStream} with its threshold set to 100kb
+ *
+ * This class is not thread safe!
  */
 public class MimeMessageInputStreamSource extends MimeMessageSource implements Disposable {
 
-    private final List<InputStream> streams = new ArrayList<>();
+    private final Set<InputStream> streams = new HashSet<>();
 
     /**
      * A temporary file used to hold the message stream
      */
-    private DeferredFileOutputStream out;
+    private BufferedDeferredFileOutputStream out;
 
     /**
      * The full path of the temporary file
@@ -77,7 +79,7 @@ public class MimeMessageInputStreamSource extends MimeMessageSource implements D
         // We want to immediately read this into a temporary file
         // Create a temp file and channel the input stream into it
         try {
-            out = new DeferredFileOutputStream(THRESHOLD, "mimemessage-" + key, ".m64", TMPDIR);
+            out = new BufferedDeferredFileOutputStream(THRESHOLD, "mimemessage-" + key, ".m64", TMPDIR);
             IOUtils.copy(in, out);
             sourceId = key;
         } catch (IOException ioe) {
@@ -108,7 +110,7 @@ public class MimeMessageInputStreamSource extends MimeMessageSource implements D
 
     public MimeMessageInputStreamSource(String key) {
         super();
-        out = new DeferredFileOutputStream(THRESHOLD, key, ".m64", TMPDIR);
+        out = new BufferedDeferredFileOutputStream(THRESHOLD, key, ".m64", TMPDIR);
         sourceId = key;
     }
 
@@ -128,7 +130,7 @@ public class MimeMessageInputStreamSource extends MimeMessageSource implements D
      * @return a <code>BufferedInputStream</code> containing the data
      */
     @Override
-    public synchronized InputStream getInputStream() throws IOException {
+    public InputStream getInputStream() throws IOException {
         InputStream in;
         if (out.isInMemory()) {
             in = new SharedByteArrayInputStream(out.getData());

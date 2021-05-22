@@ -22,7 +22,6 @@ package org.apache.james.server.core;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.OptionalDataException;
-import java.io.OutputStream;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Collection;
@@ -99,7 +98,7 @@ public class MailImpl implements Disposable, Mail {
             .name(deriveNewName(mail.getName()))
             .sender(mail.getMaybeSender())
             .addRecipients(mail.getRecipients())
-            .mimeMessage(new MimeMessageCopyOnWriteProxy(mail.getMessage()))
+            .mimeMessage(new MimeMessageWrapper(mail.getMessage()))
             .remoteHost(mail.getRemoteHost())
             .remoteAddr(mail.getRemoteAddr())
             .lastUpdated(mail.getLastUpdated())
@@ -365,7 +364,7 @@ public class MailImpl implements Disposable, Mail {
     /**
      * The MimeMessage that holds the mail data.
      */
-    private MimeMessageCopyOnWriteProxy message;
+    private MimeMessageWrapper message;
     /**
      * The sender of this mail.
      */
@@ -495,11 +494,10 @@ public class MailImpl implements Disposable, Mail {
      */
     @Override
     public void setMessage(MimeMessage message) throws MessagingException {
+        setMessageNoCopy(new MimeMessageWrapper(message));
+    }
 
-        // TODO: We should use the MimeMessageCopyOnWriteProxy
-        // everytime we set the MimeMessage. We should
-        // investigate if we should wrap it here
-
+    public void setMessageNoCopy(MimeMessageWrapper message) throws MessagingException {
         if (this.message != message) {
             // If a setMessage is called on a Mail that already have a message
             // (discouraged) we have to make sure that the message we remove is
@@ -507,12 +505,12 @@ public class MailImpl implements Disposable, Mail {
             if (this.message != null) {
                 LifecycleUtil.dispose(this.message);
             }
-            if (message instanceof MimeMessageCopyOnWriteProxy) {
-                this.message = (MimeMessageCopyOnWriteProxy) message;
-            } else {
-                this.message = new MimeMessageCopyOnWriteProxy(message);
-            }
+            this.message = message;
         }
+    }
+
+    public void setMessageContent(MimeMessageSource message) throws MessagingException {
+           setMessageNoCopy(new MimeMessageWrapper(message));
     }
 
     @Override
@@ -545,21 +543,6 @@ public class MailImpl implements Disposable, Mail {
             lastUpdated = new Date(lastUpdated.getTime());
         }
         this.lastUpdated = lastUpdated;
-    }
-
-    /**
-     * Writes the message out to an OutputStream.
-     *
-     * @param out the OutputStream to which to write the content
-     * @throws MessagingException if the MimeMessage is not set for this MailImpl
-     * @throws IOException        if an error occurs while reading or writing from the stream
-     */
-    public void writeMessageTo(OutputStream out) throws IOException, MessagingException {
-        if (message != null) {
-            message.writeTo(out);
-        } else {
-            throw new MessagingException("No message set for this MailImpl.");
-        }
     }
 
     // Serializable Methods

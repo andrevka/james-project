@@ -23,40 +23,34 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 import eu.timepit.refined.api.{RefType, Validate}
-import org.apache.james.jmap.model.Id.Id
-import org.apache.james.jmap.model.SetError.SetErrorDescription
-import org.apache.james.jmap.model.{AccountId, Properties, SetError, UTCDate}
+import org.apache.james.core.MailAddress
+import org.apache.james.jmap.api.change.Limit
+import org.apache.james.jmap.core.SetError.SetErrorDescription
+import org.apache.james.jmap.core.{AccountId, Properties, SetError, UTCDate, UuidState}
+import org.apache.james.jmap.mail.HasMoreChanges
 import play.api.libs.json._
 
 import scala.util.{Failure, Success, Try}
 
 package object json {
-  def mapWrites[K, V](keyWriter: K => String, valueWriter: Writes[V]): Writes[Map[K, V]] =
+  implicit val jsObjectReads: Reads[JsObject] = {
+    case o: JsObject => JsSuccess(o)
+    case _ => JsError("Expecting a JsObject as a creation entry")
+  }
+
+  val mapMarkerReads: Reads[Boolean] = {
+    case JsBoolean(true) => JsSuccess(true)
+    case JsBoolean(false) => JsError("map marker value can only be true")
+    case _ => JsError("Expecting mailboxId value to be a boolean")
+  }
+
+  def mapWrites[K, V](keyWriter: K => String, valueWriter: Writes[V]): OWrites[Map[K, V]] =
     (ids: Map[K, V]) => {
       ids.foldLeft(JsObject.empty)((jsObject, kv) => {
         val (key: K, value: V) = kv
         jsObject.+(keyWriter.apply(key), valueWriter.writes(value))
       })
     }
-
-  def readMapEntry[K, V](keyValidator: String => Either[String, K], valueTransformer: JsObject => V): Reads[Map[K, V]] = _.validate[Map[String, JsObject]]
-    .flatMap(mapWithStringKey =>{
-      mapWithStringKey
-        .foldLeft[Either[JsError, Map[K, V]]](scala.util.Right[JsError, Map[K, V]](Map.empty))((acc: Either[JsError, Map[K, V]], keyValue) => {
-          acc match {
-            case error@Left(_) => error
-            case scala.util.Right(validatedAcc) =>
-              val refinedKey: Either[String, K] = keyValidator.apply(keyValue._1)
-              refinedKey match {
-                case Left(error) => Left(JsError(error))
-                case scala.util.Right(unparsedK) => scala.util.Right(validatedAcc + (unparsedK -> valueTransformer.apply(keyValue._2)))
-              }
-          }
-        }) match {
-        case Left(jsError) => jsError
-        case scala.util.Right(value) => JsSuccess(value)
-      }
-    })
 
   // code copied from https://github.com/avdv/play-json-refined/blob/master/src/main/scala/de.cbley.refined.play.json/package.scala
   implicit def writeRefined[T, P, F[_, _]](
@@ -78,11 +72,6 @@ package object json {
         }
       })
 
-  implicit def idMapWrite[Any](implicit vr: Writes[Any]): Writes[Map[Id, Any]] =
-    (m: Map[Id, Any]) => {
-      JsObject(m.map { case (k, v) => (k.value, vr.writes(v)) }.toSeq)
-    }
-
   private[json] implicit val UTCDateReads: Reads[UTCDate] = {
     case JsString(value) =>
       Try(UTCDate(ZonedDateTime.parse(value, DateTimeFormatter.ISO_DATE_TIME))) match {
@@ -91,10 +80,25 @@ package object json {
       }
     case _ => JsError("Expecting js string to represent UTC Date")
   }
+
+  private[json] implicit val stateReads: Reads[UuidState] = Json.valueReads[UuidState]
   private[json] implicit val accountIdWrites: Format[AccountId] = Json.valueFormat[AccountId]
   private[json] implicit val propertiesFormat: Format[Properties] = Json.valueFormat[Properties]
   private[json] implicit val setErrorDescriptionWrites: Writes[SetErrorDescription] = Json.valueWrites[SetErrorDescription]
   private[json] implicit val setErrorWrites: Writes[SetError] = Json.writes[SetError]
+  private[json] implicit val mailAddressWrites: Writes[MailAddress] = mailAddress => JsString(mailAddress.asString)
+  private[json] implicit val mailAddressReads: Reads[MailAddress] = {
+    case JsString(value) => Try(new MailAddress(value))
+      .fold(e => JsError(e.getMessage),
+        mailAddress => JsSuccess(mailAddress))
+    case _ => JsError("mail address needs to be represented with a JsString")
+  }
   private[json] implicit val utcDateWrites: Writes[UTCDate] =
     utcDate => JsString(utcDate.asUTC.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssX")))
+  private[json] implicit val hasMoreChangesWrites: Writes[HasMoreChanges] = Json.valueWrites[HasMoreChanges]
+  private[json] implicit val limitReads: Reads[Limit] = {
+    case JsNumber(underlying) if underlying > 0 => JsSuccess(Limit.of(underlying.intValue))
+    case JsNumber(underlying) if underlying <= 0 => JsError("Expecting a positive integer as Limit")
+    case _ => JsError("Expecting a number as Limit")
+  }
 }

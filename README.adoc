@@ -114,7 +114,7 @@ To retrieve compiled artifacts, one might mount these volumes:
 
 - --volume $PWD/dockerfiles/run/spring/destination:/spring/destination : is the volume used to get the compiled elements for Spring packaging.
 - --volume $PWD/dockerfiles/run/guice/cassandra/destination:/cassandra/destination : is the volume used to get the compiled elements for Guice Cassandra packaging and Cassandra-LDAP packaging.
-- --volume $PWD/dockerfiles/run/guice/cassandra/destination:/jpa/destination : is the volume used to get the compiled elements for Guice JPA packaging.
+- --volume $PWD/dockerfiles/run/guice/jpa/destination:/jpa/destination : is the volume used to get the compiled elements for Guice JPA packaging.
 - --volume $PWD/swagger:/swagger : is the volume used to get the swagger json files for webadmin documentation.
 
 Some tests needs a DOCKER_HOST environment variable in order to be played, they will be ignored if you don't provide this variable.
@@ -153,7 +153,7 @@ If you haven't already:
 ==== How to ?
 You need a running *cassandra* in docker. To achieve this run:
 
-    $ docker run -d --name=cassandra cassandra:3.11.3
+    $ docker run -d --name=cassandra cassandra:3.11.10
 
 You need a running *rabbitmq* in docker. To achieve this run:
 
@@ -165,13 +165,13 @@ You need a running *s3* compatible objectstorage in docker. To achieve this run:
 
 You need a running *ElasticSearch* in docker. To achieve this run:
 
-    $ docker run -d --name=elasticsearch --env 'discovery.type=single-node' docker.elastic.co/elasticsearch/elasticsearch:6.3.2
+    $ docker run -d --name=elasticsearch --env 'discovery.type=single-node' docker.elastic.co/elasticsearch/elasticsearch:7.10.2
 
 If you want to handle attachment text extraction before indexing in ElasticSearch (this makes attachments searchable)
 and if you want to use all the JMAP search capabilities, you also need to start *Tika*.
 See http://james.apache.org/server/config-elasticsearch.html#Tika_Configuration[Tika configuration documentation] for more info.
 
-    $ docker run -d --name=tika apache/tika:1.24
+    $ docker run -d --name=tika apache/tika:1.26
 
 We need to provide the key we will use for TLS. For obvious reasons, this is not provided in this git.
 
@@ -233,11 +233,11 @@ If you haven't already:
 ==== How to ?
 You need a running *cassandra* in docker. To achieve this run:
 
-    $ docker run -d --name=cassandra cassandra:3.11.3
+    $ docker run -d --name=cassandra cassandra:3.11.10
 
 You need a running *ElasticSearch* in docker. To achieve this run:
 
-    $ docker run -d --name=elasticsearch --env 'discovery.type=single-node' docker.elastic.co/elasticsearch/elasticsearch:6.3.2
+    $ docker run -d --name=elasticsearch --env 'discovery.type=single-node' docker.elastic.co/elasticsearch/elasticsearch:7.10.2
 
 If you want to handle attachment text extraction before indexing in ElasticSearch (this makes attachments searchable)
 and if you want to use all the JMAP search capabilities, you also need to start *Tika*.
@@ -347,6 +347,8 @@ The base command is different whether you choose guice flavor or spring :
 
   * guice use : `docker exec james_run java -jar /root/james-cli.jar`
   * spring use : `docker exec james_run /root/james-server-app-3.0.0-beta6-SNAPSHOT/bin/james-cli.sh`
+
+See https://james.apache.org/server/manage-cli.html[Manage James via the Command Line] for more info.
 
 === How to add a domain ?
 

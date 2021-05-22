@@ -24,35 +24,39 @@ import static org.apache.james.mailets.configuration.Constants.LOCALHOST_IP;
 import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 
+import java.io.File;
+
 import org.apache.james.mailets.TemporaryJamesServer;
+import org.apache.james.mailets.configuration.SmtpConfiguration;
 import org.apache.james.modules.protocols.ImapGuiceProbe;
 import org.apache.james.modules.protocols.SmtpGuiceProbe;
 import org.apache.james.probe.DataProbe;
 import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
-public class SmtpNullSenderTest {
+class SmtpNullSenderTest {
     private static final String USER = "user@" + DEFAULT_DOMAIN;
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
 
     private TemporaryJamesServer jamesServer;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(@TempDir File temporaryFolder) throws Exception {
         jamesServer = TemporaryJamesServer.builder()
-            .build(temporaryFolder.newFolder());
+            .withSmtpConfiguration(SmtpConfiguration.builder()
+                .doNotVerifyIdentity()
+                .build())
+            .build(temporaryFolder);
         jamesServer.start();
 
         DataProbe dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -60,19 +64,19 @@ public class SmtpNullSenderTest {
         dataProbe.addUser(USER, PASSWORD);
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
     }
 
     @Test
-    public void smtpLayerShouldAcceptEmptySenders() throws Exception {
+    void smtpLayerShouldAcceptEmptySenders() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
             .sendMessageWithHeaders("", USER,"Short message");
     }
 
     @Test
-    public void mailProcessingShouldDeliverNullSender() throws Exception {
+    void mailProcessingShouldDeliverNullSender() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
             .sendMessageWithHeaders("", USER,"Short message");
 

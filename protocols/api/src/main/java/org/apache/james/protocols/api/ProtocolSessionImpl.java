@@ -19,6 +19,8 @@
 
 package org.apache.james.protocols.api;
 
+import static java.nio.charset.StandardCharsets.US_ASCII;
+
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
 import java.util.HashMap;
@@ -41,7 +43,6 @@ public class ProtocolSessionImpl implements ProtocolSession {
     private final Map<AttachmentKey<?>, Object> sessionState;
     private Username username;
     protected final ProtocolConfiguration config;
-    private static final Charset CHARSET = Charset.forName("US-ASCII");
     private static final String DELIMITER = "\r\n";
     
     public ProtocolSessionImpl(ProtocolTransport transport, ProtocolConfiguration config) {
@@ -122,6 +123,11 @@ public class ProtocolSessionImpl implements ProtocolSession {
         return null;
     }
 
+    @Override
+    public Response newCommandNotFoundErrorResponse() {
+        return null;
+    }
+
     /**
      * This implementation just clears the sessions state. Sub-classes should
      * overwrite this if needed
@@ -173,7 +179,7 @@ public class ProtocolSessionImpl implements ProtocolSession {
      */
     @Override
     public Charset getCharset() {
-        return CHARSET;
+        return US_ASCII;
     }
 
     /**

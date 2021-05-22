@@ -26,6 +26,57 @@ Details about URI format is in https://www.rabbitmq.com/management.html#usage-ui
 | management.password
 | password used to access management service
 
+| connection.pool.retries
+| Configure retries count to retrieve a connection. Exponential backoff is performed between each retries.
+Optional integer, defaults to 10
+
+| connection.pool.min.delay.ms
+| Configure initial duration (in ms) between two connection retries. Exponential backoff is performed between each retries.
+Optional integer, defaults to 100
+
+| channel.pool.retries
+| Configure retries count to retrieve a channel. Exponential backoff is performed between each retries.
+Optional integer, defaults to 3
+
+| channel.pool.min.delay.ms
+| Configure initial duration (in ms) between two channel retries. Exponential backoff is performed between each retries.
+Optional integer, defaults to 50
+
+| channel.pool.size
+| Configure the size of the channel pool.
+Optional integer, defaults to 3
+
+| ssl.enabled
+| Is using ssl enabled
+Optional boolean, defaults to false
+
+| ssl.management.enabled
+| Is using ssl on management api enabled
+Optional boolean, defaults to false
+
+| ssl.validation.strategy
+| Configure the validation strategy used for rabbitmq connections. Possible values are default, ignore and override.
+Optional string, defaults to using systemwide ssl configuration
+
+| ssl.truststore
+| Points to the truststore (PKCS12) used for verifying rabbitmq connection. If configured then "ssl.truststore.password" must also be configured,
+Optional string, defaults to systemwide truststore. "ssl.validation.strategy: override" must be configured if you want to use this
+
+| ssl.truststore.password
+| Configure the truststore password. If configured then "ssl.truststore" must also be configured,
+Optional string, defaults to empty string. "ssl.validation.strategy: override" must be configured if you want to use this
+
+| ssl.hostname.verifier
+| Configure host name verification. Possible options are default and accept_any_hostname
+Optional string, defaults to subject alternative name host verifier
+
+| ssl.keystore
+| Points to the keystore(PKCS12) used for client certificate authentication. If configured then "ssl.keystore.password" must also be configured,
+Optional string, defaults to empty string
+
+| ssl.keystore.password
+| Configure the keystore password. If configured then "ssl.keystore" must also be configured,
+Optional string, defaults to empty string
 |===
 
 == RabbitMQ MailQueue Configuration
@@ -64,5 +115,21 @@ sometimes it can get too big, making it impossible for the ES reporter to handle
 It can be useful then to disable it.
 Tips for choosing metricsEnabled are explained in
 https://github.com/apache/james-project/blob/master/dockerfiles/run/guice/cassandra-rabbitmq/destination/conf/rabbitmq.properties[rabbitmq.properties]
+
+|===
+
+== RabbitMQ Tasks Configuration
+
+Tasks are WebAdmin triggered long running jobs. RabbitMQ is used to organise their execution in a work queue,
+with an exclusive consumer.
+
+.rabbitmq.properties content
+|===
+| Property name | explanation
+
+| task.consumption.enabled
+| Whether to enable task consumption on this node.
+Disable with caution (this only makes sense in a distributed setup where other nodes consume tasks).
+Defaults to true.
 
 |===

@@ -39,10 +39,19 @@ public class VersionParser {
     private static final String JMAP_VERSION_HEADER = "jmapVersion";
 
     private final Set<Version> supportedVersions;
+    private final JMAPConfiguration jmapConfiguration;
 
     @Inject
-    public VersionParser(Set<Version> supportedVersions) {
+    public VersionParser(Set<Version> supportedVersions, JMAPConfiguration jmapConfiguration) {
+        this.jmapConfiguration = jmapConfiguration;
+        Preconditions.checkArgument(supportedVersions.contains(jmapConfiguration.getDefaultVersion()),
+                "%s is not a supported JMAP version", jmapConfiguration);
+
         this.supportedVersions = supportedVersions;
+    }
+
+    public Set<Version> getSupportedVersions() {
+        return supportedVersions;
     }
 
     @VisibleForTesting
@@ -61,7 +70,7 @@ public class VersionParser {
             .map(NameValuePair::getValue)
             .map(this::parse)
             .findFirst()
-            .orElse(Version.DRAFT);
+            .orElse(jmapConfiguration.getDefaultVersion());
     }
 
     private Stream<NameValuePair> asVersion(HttpServerRequest request) {

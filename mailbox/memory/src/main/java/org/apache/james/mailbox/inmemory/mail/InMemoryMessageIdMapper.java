@@ -20,6 +20,7 @@
 package org.apache.james.mailbox.inmemory.mail;
 
 import static org.apache.james.mailbox.store.mail.AbstractMessageMapper.UNLIMITED;
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
 
 import java.util.Collection;
 import java.util.List;
@@ -51,6 +52,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multimap;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 public class InMemoryMessageIdMapper implements MessageIdMapper {
     private final MailboxMapper mailboxMapper;
@@ -71,7 +74,7 @@ public class InMemoryMessageIdMapper implements MessageIdMapper {
     @Override
     public Publisher<ComposedMessageIdWithMetaData> findMetadata(MessageId messageId) {
         return mailboxMapper.list()
-            .flatMap(mailbox -> messageMapper.findInMailboxReactive(mailbox, MessageRange.all(), MessageMapper.FetchType.Full, UNLIMITED))
+            .flatMap(mailbox -> messageMapper.findInMailboxReactive(mailbox, MessageRange.all(), MessageMapper.FetchType.Full, UNLIMITED), DEFAULT_CONCURRENCY)
             .map(message -> new ComposedMessageIdWithMetaData(
                 new ComposedMessageId(
                     message.getMailboxId(),
@@ -84,7 +87,7 @@ public class InMemoryMessageIdMapper implements MessageIdMapper {
     @Override
     public Flux<MailboxMessage> findReactive(Collection<MessageId> messageIds, MessageMapper.FetchType fetchType) {
         return mailboxMapper.list()
-            .flatMap(mailbox -> messageMapper.findInMailboxReactive(mailbox, MessageRange.all(), fetchType, UNLIMITED))
+            .flatMap(mailbox -> messageMapper.findInMailboxReactive(mailbox, MessageRange.all(), fetchType, UNLIMITED), DEFAULT_CONCURRENCY)
             .filter(message -> messageIds.contains(message.getMessageId()));
     }
 
@@ -131,16 +134,17 @@ public class InMemoryMessageIdMapper implements MessageIdMapper {
     }
 
     @Override
-    public Multimap<MailboxId, UpdatedFlags> setFlags(MessageId messageId, List<MailboxId> mailboxIds,
-                                                      Flags newState, FlagsUpdateMode updateMode) {
-        return find(ImmutableList.of(messageId), MessageMapper.FetchType.Metadata)
+    public Mono<Multimap<MailboxId, UpdatedFlags>> setFlags(MessageId messageId, List<MailboxId> mailboxIds,
+                                                            Flags newState, FlagsUpdateMode updateMode) {
+        return Mono.<Multimap<MailboxId, UpdatedFlags>>fromCallable(() -> find(ImmutableList.of(messageId), MessageMapper.FetchType.Metadata)
             .stream()
             .filter(message -> mailboxIds.contains(message.getMailboxId()))
             .map(updateMessage(newState, updateMode))
             .distinct()
             .collect(Guavate.toImmutableListMultimap(
                 Pair::getKey,
-                Pair::getValue));
+                Pair::getValue)))
+            .subscribeOn(Schedulers.elastic());
     }
 
     private Function<MailboxMessage, Pair<MailboxId, UpdatedFlags>> updateMessage(Flags newState, FlagsUpdateMode updateMode) {
@@ -150,6 +154,7 @@ public class InMemoryMessageIdMapper implements MessageIdMapper {
                 UpdatedFlags updatedFlags = UpdatedFlags.builder()
                     .modSeq(message.getModSeq())
                     .uid(message.getUid())
+                    .messageId(message.getMessageId())
                     .oldFlags(message.createFlags())
                     .newFlags(newState)
                     .build();

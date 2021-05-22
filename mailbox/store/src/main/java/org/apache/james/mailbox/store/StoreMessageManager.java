@@ -21,10 +21,12 @@ package org.apache.james.mailbox.store;
 
 import static org.apache.james.mailbox.extension.PreDeletionHook.DeleteOperation;
 import static org.apache.james.mailbox.store.mail.AbstractMessageMapper.UNLIMITED;
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -37,14 +39,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.stream.Stream;
 
 import javax.mail.Flags;
 import javax.mail.Flags.Flag;
-import javax.mail.util.SharedFileInputStream;
 
 import org.apache.commons.io.input.TeeInputStream;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.james.events.EventBus;
+import org.apache.james.events.EventListener;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxManager.MessageCapabilities;
 import org.apache.james.mailbox.MailboxPathLocker;
@@ -53,14 +55,13 @@ import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.MetadataWithMailboxId;
 import org.apache.james.mailbox.ModSeq;
-import org.apache.james.mailbox.events.EventBus;
 import org.apache.james.mailbox.events.MailboxIdRegistrationKey;
-import org.apache.james.mailbox.events.MailboxListener;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.ReadOnlyException;
 import org.apache.james.mailbox.exception.UnsupportedRightException;
 import org.apache.james.mailbox.model.ComposedMessageId;
 import org.apache.james.mailbox.model.ComposedMessageIdWithMetaData;
+import org.apache.james.mailbox.model.Content;
 import org.apache.james.mailbox.model.FetchGroup;
 import org.apache.james.mailbox.model.Mailbox;
 import org.apache.james.mailbox.model.MailboxACL;
@@ -87,6 +88,7 @@ import org.apache.james.mailbox.store.quota.QuotaChecker;
 import org.apache.james.mailbox.store.search.MessageSearchIndex;
 import org.apache.james.mailbox.store.streaming.CountingInputStream;
 import org.apache.james.mime4j.MimeException;
+import org.apache.james.mime4j.dom.Message;
 import org.apache.james.mime4j.message.DefaultBodyDescriptorBuilder;
 import org.apache.james.mime4j.message.HeaderImpl;
 import org.apache.james.mime4j.message.MaximalBodyDescriptor;
@@ -114,7 +116,7 @@ import reactor.core.scheduler.Schedulers;
  * implementations.
  * 
  * This base class take care of dispatching events to the registered
- * {@link MailboxListener} and so help with handling concurrent
+ * {@link EventListener} and so help with handling concurrent
  * {@link MailboxSession}'s.
  */
 public class StoreMessageManager implements MessageManager {
@@ -126,6 +128,7 @@ public class StoreMessageManager implements MessageManager {
      */
     protected static final Flags MINIMAL_PERMANET_FLAGS;
     private static final SearchQuery LIST_ALL_QUERY = SearchQuery.of(SearchQuery.all());
+    private static final SearchQuery LIST_FROM_ONE = SearchQuery.of(SearchQuery.uid(new SearchQuery.UidRange(MessageUid.MIN_VALUE, MessageUid.MAX_VALUE)));
 
     private static class MediaType {
         final String mediaType;
@@ -303,7 +306,8 @@ public class StoreMessageManager implements MessageManager {
             appendCommand.getInternalDate(),
             session,
             appendCommand.isRecent(),
-            appendCommand.getFlags());
+            appendCommand.getFlags(),
+            appendCommand.getMaybeParsedMessage());
     }
 
     @Override
@@ -320,27 +324,29 @@ public class StoreMessageManager implements MessageManager {
             // source for the InputStream
             file = File.createTempFile("imap", ".msg");
             try (FileOutputStream out = new FileOutputStream(file);
-                 BufferedOutputStream bufferedOut = new BufferedOutputStream(out);
-                 BufferedInputStream tmpMsgIn = new BufferedInputStream(new TeeInputStream(msgIn, bufferedOut));
-                 BodyOffsetInputStream bIn = new BodyOffsetInputStream(tmpMsgIn)) {
-                // Disable line length... This should be handled by the smtp server
-                // component and not the parser itself
-                // https://issues.apache.org/jira/browse/IMAP-122
-                final MimeTokenStream parser = getParser(bIn);
-                readHeader(parser);
-                final MaximalBodyDescriptor descriptor = (MaximalBodyDescriptor) parser.getBodyDescriptor();
-                final MediaType mediaType = getMediaType(descriptor);
-                final PropertyBuilder propertyBuilder = getPropertyBuilder(descriptor, mediaType.mediaType, mediaType.subType);
-                setTextualLinesCount(parser, mediaType.mediaType, propertyBuilder);
-                final Flags flags = getFlags(mailboxSession, isRecent, flagsToBeSet);
+                BufferedOutputStream bufferedOut = new BufferedOutputStream(out);
+                BufferedInputStream tmpMsgIn = new BufferedInputStream(new TeeInputStream(msgIn, bufferedOut));
+                BodyOffsetInputStream bIn = new BodyOffsetInputStream(tmpMsgIn)) {
+                PropertyBuilder propertyBuilder = parseProperties(bIn);
 
-                if (internalDate == null) {
-                    internalDate = new Date();
-                }
                 InputStreamConsummer.consume(tmpMsgIn);
                 bufferedOut.flush();
                 int bodyStartOctet = getBodyStartOctet(bIn);
-                return createAndDispatchMessage(internalDate, mailboxSession, file, propertyBuilder, flags, bodyStartOctet);
+                File finalFile = file;
+                Optional<Message> unparsedMimeMessqage = Optional.empty();
+                return createAndDispatchMessage(computeInternalDate(internalDate),
+                    mailboxSession, new Content() {
+                        @Override
+                        public InputStream getInputStream() throws IOException {
+                            return new FileInputStream(finalFile);
+                        }
+
+                        @Override
+                        public long size() {
+                            return finalFile.length();
+                        }
+                    }, propertyBuilder,
+                    getFlags(mailboxSession, isRecent, flagsToBeSet), bodyStartOctet, unparsedMimeMessqage);
             }
         } catch (IOException | MimeException e) {
             throw new MailboxException("Unable to parse message", e);
@@ -354,6 +360,42 @@ public class StoreMessageManager implements MessageManager {
                 }
             }
         }
+    }
+
+    private AppendResult appendMessage(Content msgIn, Date internalDate, final MailboxSession mailboxSession, boolean isRecent, Flags flagsToBeSet, Optional<Message> maybeMessage) throws MailboxException {
+        if (!isWriteable(mailboxSession)) {
+            throw new ReadOnlyException(getMailboxPath());
+        }
+
+        try (InputStream contentStreamStream = msgIn.getInputStream()) {
+            BodyOffsetInputStream bIn = new BodyOffsetInputStream(contentStreamStream);
+            PropertyBuilder propertyBuilder = parseProperties(bIn);
+            int bodyStartOctet = getBodyStartOctet(bIn);
+
+            return createAndDispatchMessage(computeInternalDate(internalDate),
+                mailboxSession, msgIn, propertyBuilder,
+                getFlags(mailboxSession, isRecent, flagsToBeSet), bodyStartOctet, maybeMessage);
+        } catch (IOException | MimeException e) {
+            throw new MailboxException("Unable to parse message", e);
+        }
+    }
+
+    private PropertyBuilder parseProperties(BodyOffsetInputStream bIn) throws IOException, MimeException {
+        // Disable line length... This should be handled by the smtp server
+        // component and not the parser itself
+        // https://issues.apache.org/jira/browse/IMAP-122
+        final MimeTokenStream parser = getParser(bIn);
+        readHeader(parser);
+        final MaximalBodyDescriptor descriptor = (MaximalBodyDescriptor) parser.getBodyDescriptor();
+        final MediaType mediaType = getMediaType(descriptor);
+        final PropertyBuilder propertyBuilder = getPropertyBuilder(descriptor, mediaType.mediaType, mediaType.subType);
+        setTextualLinesCount(parser, mediaType.mediaType, propertyBuilder);
+        return propertyBuilder;
+    }
+
+    private Date computeInternalDate(Date internalDate) {
+        return Optional.ofNullable(internalDate)
+            .orElseGet(Date::new);
     }
 
     private MimeTokenStream getParser(BodyOffsetInputStream bIn) {
@@ -430,13 +472,12 @@ public class StoreMessageManager implements MessageManager {
         return bodyStartOctet;
     }
 
-    private AppendResult createAndDispatchMessage(Date internalDate, MailboxSession mailboxSession, File file, PropertyBuilder propertyBuilder, Flags flags, int bodyStartOctet) throws IOException, MailboxException {
-        try (SharedFileInputStream contentIn = new SharedFileInputStream(file)) {
-            final int size = (int) file.length();
+    private AppendResult createAndDispatchMessage(Date internalDate, MailboxSession mailboxSession, Content content, PropertyBuilder propertyBuilder, Flags flags, int bodyStartOctet, Optional<Message> maybeMessage) throws MailboxException {
+            final int size = (int) content.size();
             new QuotaChecker(quotaManager, quotaRootResolver, mailbox).tryAddition(1, size);
 
             return locker.executeWithLock(getMailboxPath(), () -> {
-                Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> data = messageStorer.appendMessageToStore(mailbox, internalDate, size, bodyStartOctet, contentIn, flags, propertyBuilder, mailboxSession);
+                Pair<MessageMetaData, Optional<List<MessageAttachmentMetadata>>> data = messageStorer.appendMessageToStore(mailbox, internalDate, size, bodyStartOctet, content, flags, propertyBuilder, maybeMessage, mailboxSession);
 
                 Mailbox mailbox = getMailboxEntity();
 
@@ -451,9 +492,8 @@ public class StoreMessageManager implements MessageManager {
                     .block();
                 MessageMetaData messageMetaData = data.getLeft();
                 ComposedMessageId ids = new ComposedMessageId(mailbox.getMailboxId(), messageMetaData.getMessageId(), messageMetaData.getUid());
-                return new AppendResult(ids, data.getRight());
+                return new AppendResult(ids, messageMetaData.getSize(), data.getRight());
             }, MailboxPathLocker.LockType.Write);
-        }
     }
 
     private PropertyBuilder getPropertyBuilder(MaximalBodyDescriptor descriptor, String mediaType, String subType) {
@@ -477,10 +517,6 @@ public class StoreMessageManager implements MessageManager {
             }
         } else {
             propertyBuilder.setCharset(codeset);
-        }
-        final String boundary = descriptor.getBoundary();
-        if (boundary != null) {
-            propertyBuilder.setBoundary(boundary);
         }
         return propertyBuilder;
     }
@@ -702,7 +738,7 @@ public class StoreMessageManager implements MessageManager {
 
         Mono<DeleteOperation> deleteOperation = Flux.fromIterable(MessageRange.toRanges(uids))
             .publishOn(Schedulers.elastic())
-            .flatMap(range -> messageMapper.findInMailboxReactive(mailbox, range, FetchType.Metadata, UNLIMITED))
+            .flatMap(range -> messageMapper.findInMailboxReactive(mailbox, range, FetchType.Metadata, UNLIMITED), DEFAULT_CONCURRENCY)
             .map(mailboxMessage -> MetadataWithMailboxId.from(mailboxMessage.metaData(), mailboxMessage.getMailboxId()))
             .collect(Guavate.toImmutableList())
             .map(DeleteOperation::from);
@@ -711,39 +747,50 @@ public class StoreMessageManager implements MessageManager {
     }
 
     @Override
-    public Stream<MessageUid> search(SearchQuery query, MailboxSession mailboxSession) throws MailboxException {
-        if (query.equals(LIST_ALL_QUERY)) {
+    public Flux<MessageUid> search(SearchQuery query, MailboxSession mailboxSession) throws MailboxException {
+        if (query.equals(LIST_ALL_QUERY) || query.equals(LIST_FROM_ONE)) {
             return listAllMessageUids(mailboxSession);
         }
         return index.search(mailboxSession, getMailboxEntity(), query);
     }
 
     private Iterator<MessageMetaData> copy(Iterator<MailboxMessage> originalRows, MailboxSession session) throws MailboxException {
+        int batchSize = batchSizes.getCopyBatchSize().orElse(1);
         final List<MessageMetaData> copiedRows = new ArrayList<>();
         final MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
 
+        Iterator<List<MailboxMessage>> groupedOriginalRows = com.google.common.collect.Iterators.partition(originalRows, batchSize);
+
         while (originalRows.hasNext()) {
-            final MailboxMessage originalMessage = originalRows.next();
+            List<MailboxMessage> originalMessages = groupedOriginalRows.next();
+
             new QuotaChecker(quotaManager, quotaRootResolver, mailbox)
-                .tryAddition(1, originalMessage.getFullContentOctets());
-            MessageMetaData data = messageMapper.execute(
-                () -> messageMapper.copy(getMailboxEntity(), originalMessage));
-            copiedRows.add(data);
+                .tryAddition(originalMessages.size(), originalMessages.stream()
+                    .mapToLong(MailboxMessage::getFullContentOctets)
+                    .sum());
+            List<MessageMetaData> data = messageMapper.execute(
+                () -> messageMapper.copy(getMailboxEntity(), originalMessages));
+            copiedRows.addAll(data);
         }
         return copiedRows.iterator();
     }
 
     private MoveResult move(Iterator<MailboxMessage> originalRows, MailboxSession session) throws MailboxException {
+        int batchSize = batchSizes.getMoveBatchSize().orElse(1);
         final List<MessageMetaData> movedRows = new ArrayList<>();
         final List<MessageMetaData> originalRowsCopy = new ArrayList<>();
         final MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
 
-        while (originalRows.hasNext()) {
-            final MailboxMessage originalMessage = originalRows.next();
-            originalRowsCopy.add(originalMessage.metaData());
-            MessageMetaData data = messageMapper.execute(
-                () -> messageMapper.move(getMailboxEntity(), originalMessage));
-            movedRows.add(data);
+        Iterator<List<MailboxMessage>> groupedOriginalRows = com.google.common.collect.Iterators.partition(originalRows, batchSize);
+
+        while (groupedOriginalRows.hasNext()) {
+            List<MailboxMessage> originalMessages = groupedOriginalRows.next();
+            originalRowsCopy.addAll(originalMessages.stream()
+                .map(MailboxMessage::metaData)
+                .collect(Guavate.toImmutableList()));
+            List<MessageMetaData> data = messageMapper.execute(
+                () -> messageMapper.move(getMailboxEntity(), originalMessages));
+            movedRows.addAll(data);
         }
         return new MoveResult(movedRows.iterator(), originalRowsCopy.iterator());
     }
@@ -863,11 +910,11 @@ public class StoreMessageManager implements MessageManager {
             .getApplicableFlag(mailbox);
     }
 
-    private Stream<MessageUid> listAllMessageUids(MailboxSession session) throws MailboxException {
+    private Flux<MessageUid> listAllMessageUids(MailboxSession session) throws MailboxException {
         final MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
 
         return messageMapper.execute(
-            () -> messageMapper.listAllMessageUids(mailbox).toStream());
+            () -> messageMapper.listAllMessageUids(mailbox));
     }
 
     @Override

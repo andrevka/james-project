@@ -27,6 +27,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
+import javax.inject.Inject;
+
+import org.apache.james.metrics.api.MetricFactory;
 import org.apache.james.protocols.api.ProtocolSession.State;
 import org.apache.james.protocols.api.Request;
 import org.apache.james.protocols.api.Response;
@@ -34,6 +37,9 @@ import org.apache.james.protocols.pop3.POP3Response;
 import org.apache.james.protocols.pop3.POP3Session;
 import org.apache.james.protocols.pop3.POP3StreamResponse;
 import org.apache.james.protocols.pop3.mailbox.MessageMetaData;
+import org.apache.james.util.MDCBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -42,11 +48,20 @@ import com.google.common.collect.ImmutableSet;
  * Handles TOP command
  */
 public class TopCmdHandler extends RetrCmdHandler implements CapaCapability {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TopCmdHandler.class);
     private static final Collection<String> COMMANDS = ImmutableList.of("TOP");
     private static final Set<String> CAPS = ImmutableSet.of("TOP");
     
     private static final Response SYNTAX_ERROR = new POP3Response(POP3Response.ERR_RESPONSE, "Usage: TOP [mail number] [Line number]").immutable();
     private static final Response ERROR_MESSAGE_RETR = new POP3Response(POP3Response.ERR_RESPONSE, "Error while retrieving message.").immutable();
+
+    private final MetricFactory metricFactory;
+
+    @Inject
+    public TopCmdHandler(MetricFactory metricFactory) {
+        super(metricFactory);
+        this.metricFactory = metricFactory;
+    }
 
     /**
      * Handler method called upon receipt of a TOP command. This command
@@ -58,6 +73,17 @@ public class TopCmdHandler extends RetrCmdHandler implements CapaCapability {
     @SuppressWarnings("unchecked")
     @Override
     public Response onCommand(POP3Session session, Request request) {
+        return metricFactory.decorateSupplierWithTimerMetric("pop3-top", () ->
+            MDCBuilder.withMdc(
+                MDCBuilder.create()
+                    .addContext(MDCBuilder.ACTION, "TOP")
+                    .addContext(MDCConstants.withSession(session))
+                    .addContext(MDCConstants.forRequest(request)),
+                () -> top(session, request)));
+    }
+
+    private Response top(POP3Session session, Request request) {
+        LOGGER.trace("TOP command received");
         String parameters = request.getArgument();
         if (parameters == null) {
             return SYNTAX_ERROR;
@@ -81,13 +107,13 @@ public class TopCmdHandler extends RetrCmdHandler implements CapaCapability {
                 return SYNTAX_ERROR;
             }
             try {
-                
+
                 MessageMetaData data = MessageMetaDataUtils.getMetaData(session, num);
                 if (data == null) {
                     StringBuilder responseBuffer = new StringBuilder(64).append("Message (").append(num).append(") does not exist.");
                     return  new POP3Response(POP3Response.ERR_RESPONSE, responseBuffer.toString());
                 }
-                
+
                 List<String> deletedUidList = session.getAttachment(POP3Session.DELETED_UID_LIST, State.Transaction).orElse(ImmutableList.of());
 
                 String uid = data.getUid();
@@ -109,7 +135,6 @@ public class TopCmdHandler extends RetrCmdHandler implements CapaCapability {
         } else {
             return POP3Response.ERR;
         }
-
     }
 
     @Override

@@ -19,6 +19,7 @@
 
 package org.apache.james.mailbox.store.mail.model.impl;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,6 +37,7 @@ import org.apache.james.mime4j.dom.Body;
 import org.apache.james.mime4j.dom.Entity;
 import org.apache.james.mime4j.dom.Message;
 import org.apache.james.mime4j.dom.Multipart;
+import org.apache.james.mime4j.dom.SingleBody;
 import org.apache.james.mime4j.dom.field.ContentDispositionField;
 import org.apache.james.mime4j.dom.field.ContentIdField;
 import org.apache.james.mime4j.dom.field.ContentTypeField;
@@ -51,6 +53,7 @@ import org.slf4j.LoggerFactory;
 import com.github.steveash.guavate.Guavate;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.ByteSource;
 
 public class MessageParser {
 
@@ -65,8 +68,11 @@ public class MessageParser {
     private static final String TEXT_CALENDAR = "text/calendar";
     private static final ImmutableList<String> ATTACHMENT_CONTENT_TYPES = ImmutableList.of(
         "application/pgp-signature",
-        "message/disposition-notification",
-        TEXT_CALENDAR);
+        "message/disposition-notification");
+    private static final ImmutableList<String> ALLOWED_ATTACHMENT_CONTENT_TYPES = ImmutableList.<String>builder()
+        .addAll(ATTACHMENT_CONTENT_TYPES)
+        .add(TEXT_CALENDAR)
+        .build();
     private static final Logger LOGGER = LoggerFactory.getLogger(MessageParser.class);
 
     private final Cid.CidParser cidParser;
@@ -82,6 +88,10 @@ public class MessageParser {
         defaultMessageBuilder.setMimeEntityConfig(MimeConfig.PERMISSIVE);
         defaultMessageBuilder.setDecodeMonitor(DecodeMonitor.SILENT);
         Message message = defaultMessageBuilder.parseMessage(fullContent);
+        return retrieveAttachments(message);
+    }
+
+    public List<ParsedAttachment> retrieveAttachments(Message message) throws IOException {
         Body body = message.getBody();
         try {
             if (isAttachment(message, Context.BODY)) {
@@ -134,7 +144,19 @@ public class MessageParser {
 
         return ParsedAttachment.builder()
                 .contentType(contentType.orElse(DEFAULT_CONTENT_TYPE))
-                .content(getContent(entity.getBody()))
+                .content(new ByteSource() {
+                    @Override
+                    public InputStream openStream() throws IOException {
+                        Body body = entity.getBody();
+                        if (body instanceof SingleBody) {
+                            // Avoid copies for BinaryBody / TextBody
+                            SingleBody singleBody = (SingleBody) body;
+                            return singleBody.getInputStream();
+                        }
+                        // Fallback to a memory copy
+                        return new ByteArrayInputStream(getContent(body));
+                    }
+                })
                 .name(name)
                 .cid(cid)
                 .inline(isInline);
@@ -190,7 +212,7 @@ public class MessageParser {
 
     private boolean isTextPart(Entity part) {
         return getContentTypeField(part)
-            .filter(header -> !ATTACHMENT_CONTENT_TYPES.contains(header.getMimeType()))
+            .filter(header -> !ALLOWED_ATTACHMENT_CONTENT_TYPES.contains(header.getMimeType()))
             .map(ContentTypeField::getMediaType)
             .map(TEXT_MEDIA_TYPE::equals)
             .orElse(false);

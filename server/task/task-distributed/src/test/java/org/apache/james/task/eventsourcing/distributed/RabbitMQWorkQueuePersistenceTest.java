@@ -21,6 +21,7 @@ package org.apache.james.task.eventsourcing.distributed;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.awaitility.Durations.ONE_MINUTE;
 import static org.mockito.Mockito.spy;
 
 import org.apache.james.backends.rabbitmq.RabbitMQExtension;
@@ -31,7 +32,6 @@ import org.apache.james.task.MemoryReferenceTask;
 import org.apache.james.task.Task;
 import org.apache.james.task.TaskId;
 import org.apache.james.task.TaskWithId;
-import org.awaitility.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +53,7 @@ class RabbitMQWorkQueuePersistenceTest {
     void setUp() {
         worker = spy(new ImmediateWorker());
         serializer = JsonTaskSerializer.of(TestTaskDTOModules.COMPLETED_TASK_MODULE, TestTaskDTOModules.MEMORY_REFERENCE_TASK_MODULE.apply(new MemoryReferenceTaskStore()));
-        testee = new RabbitMQWorkQueue(worker, rabbitMQExtension.getSender(), rabbitMQExtension.getReceiverProvider(), serializer);
+        testee = new RabbitMQWorkQueue(worker, rabbitMQExtension.getSender(), rabbitMQExtension.getReceiverProvider(), serializer, RabbitMQWorkQueueConfiguration$.MODULE$.enabled(), CancelRequestQueueName.generate());
         //declare the queue but do not start consuming from it
         testee.declareQueue();
     }
@@ -84,7 +84,7 @@ class RabbitMQWorkQueuePersistenceTest {
 
         startNewConsumingWorkqueue();
 
-        await().atMost(Duration.ONE_MINUTE).until(() -> !worker.results.isEmpty());
+        await().atMost(ONE_MINUTE).until(() -> !worker.results.isEmpty());
 
         assertThat(worker.tasks).containsExactly(taskWithId);
         assertThat(worker.results).containsExactly(Task.Result.COMPLETED);
@@ -92,7 +92,7 @@ class RabbitMQWorkQueuePersistenceTest {
 
     private void startNewConsumingWorkqueue() {
         worker = spy(new ImmediateWorker());
-        testee = new RabbitMQWorkQueue(worker, rabbitMQExtension.getSender(), rabbitMQExtension.getReceiverProvider(), serializer);
+        testee = new RabbitMQWorkQueue(worker, rabbitMQExtension.getSender(), rabbitMQExtension.getReceiverProvider(), serializer, RabbitMQWorkQueueConfiguration$.MODULE$.enabled(), CancelRequestQueueName.generate());
         testee.start();
     }
 }

@@ -23,30 +23,25 @@ import java.io.InputStream;
 import java.util.Date;
 import java.util.List;
 
-import javax.mail.internet.SharedInputStream;
-
+import org.apache.commons.io.input.BoundedInputStream;
+import org.apache.james.mailbox.model.Content;
 import org.apache.james.mailbox.model.MessageAttachmentMetadata;
 import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.store.mail.model.Message;
-import org.apache.james.mailbox.store.mail.model.Property;
 
 public class SimpleMessage implements Message {
 
     private final MessageId messageId;
-    private final String subType;
-    private final String mediaType;
-    private final SharedInputStream content;
+    private final Content content;
     private final int bodyStartOctet;
     private final Date internalDate;
     private final long size;
     private final Long textualLineCount;
-    private final List<Property> properties;
+    private final Properties properties;
     private final List<MessageAttachmentMetadata> attachments;
 
-    public SimpleMessage(MessageId messageId, SharedInputStream content, long size, Date internalDate, String subType, String mediaType, int bodyStartOctet, Long textualLineCount, List<Property> properties, List<MessageAttachmentMetadata> attachments) {
+    public SimpleMessage(MessageId messageId, Content content, long size, Date internalDate, int bodyStartOctet, Long textualLineCount, Properties properties, List<MessageAttachmentMetadata> attachments) {
         this.messageId = messageId;
-        this.subType = subType;
-        this.mediaType = mediaType;
         this.content = content;
         this.bodyStartOctet = bodyStartOctet;
         this.internalDate = internalDate;
@@ -68,17 +63,19 @@ public class SimpleMessage implements Message {
 
     @Override
     public InputStream getBodyContent() throws IOException {
-        return content.newStream(bodyStartOctet, -1);
+        InputStream inputStream = content.getInputStream();
+        inputStream.skip(bodyStartOctet);
+        return inputStream;
     }
 
     @Override
     public String getMediaType() {
-        return mediaType;
+        return properties.getMediaType();
     }
 
     @Override
     public String getSubType() {
-        return subType;
+        return properties.getSubType();
     }
 
     @Override
@@ -107,16 +104,16 @@ public class SimpleMessage implements Message {
         if (headerEnd < 0) {
             headerEnd = 0;
         }
-        return content.newStream(0, headerEnd);
+        return new BoundedInputStream(content.getInputStream(), headerEnd);
     }
 
     @Override
     public InputStream getFullContent() throws IOException {
-        return content.newStream(0, -1);
+        return content.getInputStream();
     }
 
     @Override
-    public List<Property> getProperties() {
+    public Properties getProperties() {
         return properties;
     }
 

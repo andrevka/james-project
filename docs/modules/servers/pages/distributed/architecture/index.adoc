@@ -29,10 +29,20 @@ The following protocols are supported and can be used to interact with the Distr
 * xref:distributed/operate/webadmin.adoc[WebAdmin] REST Administration API
 * *LMTP*
 
-The following protocols should be considered experimental
+The following protocols should be considered experimental:
 
-* *JMAP* (draft specification as defined link:https://github.com/apache/james-project/tree/master/server/protocols/jmap-draft/doc[here])
+* *JMAP* (RFC-8620 &RFC-8621 specifications and known limitations of the James implementation are defined link:https://github.com/apache/james-project/tree/master/server/protocols/jmap-rfc-8621/doc[here])
 * *POP3*
+
+The following protocols should be considered deprecated:
+
+* *JMAP-draft* (draft specification as defined link:https://github.com/apache/james-project/tree/master/server/protocols/jmap-draft/doc[here])
+
+== Topology
+
+While it is perfectly possible to deploy homogeneous James instances, with the same configuration and thus the same
+protocols and the same responsibilities one might want to investigate in
+xref:distributed/architecture/specialized-instances.adoc['Specialized instances'].
 
 == Components
 

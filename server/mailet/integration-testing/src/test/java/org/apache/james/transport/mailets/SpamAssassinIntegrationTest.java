@@ -28,6 +28,8 @@ import static org.apache.james.mailets.configuration.Constants.RECIPIENT2;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
+
 import javax.mail.MessagingException;
 
 import org.apache.james.core.builder.MimeMessageBuilder;
@@ -47,33 +49,30 @@ import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.SMTPMessageSender;
 import org.apache.james.utils.TestIMAPClient;
 import org.apache.mailet.base.test.FakeMail;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.ClassRule;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.wait.strategy.HostPortWaitStrategy;
 
-public class SpamAssassinIntegrationTest {
+class SpamAssassinIntegrationTest {
     private static final String SPAM_CONTENT = "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X";
 
-    @ClassRule
+    @RegisterExtension
     public static DockerContainer spamAssassinContainer = DockerContainer.fromName(Images.SPAMASSASSIN)
         .withExposedPorts(783)
         .withAffinityToContainer()
         .waitingFor(new HostPortWaitStrategy().withRateLimiter(RateLimiters.TWENTIES_PER_SECOND));
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public TestIMAPClient messageReader = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
 
-    @Before
-    public void setup() throws Exception {
+    @BeforeEach
+    void setup(@TempDir File temporaryFolder) throws Exception {
         MailetContainer.Builder mailets = TemporaryJamesServer.defaultMailetContainerConfiguration()
             .putProcessor(
                 ProcessorConfiguration.transport()
@@ -86,7 +85,7 @@ public class SpamAssassinIntegrationTest {
         jamesServer = TemporaryJamesServer.builder()
             .withBase(SMTP_AND_IMAP_MODULE)
             .withMailetContainer(mailets)
-            .build(temporaryFolder.newFolder());
+            .build(temporaryFolder);
         jamesServer.start();
 
         jamesServer.getProbe(DataProbeImpl.class)
@@ -97,14 +96,15 @@ public class SpamAssassinIntegrationTest {
             .addUser(RECIPIENT2, PASSWORD);
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
     }
 
     @Test
-    public void spamAssassinShouldAppendNewHeaderOnMessage() throws Exception {
+    void spamAssassinShouldAppendNewHeaderOnMessage() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(mailWithContent("This is the content", RECIPIENT));
 
         messageReader.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -119,8 +119,9 @@ public class SpamAssassinIntegrationTest {
     }
 
     @Test
-    public void spamAssassinShouldAppendNewHeaderWhichDetectIsSpamWhenSpamMessage() throws Exception {
+    void spamAssassinShouldAppendNewHeaderWhichDetectIsSpamWhenSpamMessage() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(mailWithContent(SPAM_CONTENT, RECIPIENT));
 
         messageReader.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -134,8 +135,9 @@ public class SpamAssassinIntegrationTest {
     }
 
     @Test
-    public void spamAssassinShouldAppendNewHeaderWhichNoWhenNonSpamMessage() throws Exception {
+    void spamAssassinShouldAppendNewHeaderWhichNoWhenNonSpamMessage() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(mailWithContent("This is the content", RECIPIENT));
 
         messageReader.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -149,8 +151,9 @@ public class SpamAssassinIntegrationTest {
     }
 
     @Test
-    public void spamAssassinShouldAppendNewHeaderPerRecipientOnMessage() throws Exception {
+    void spamAssassinShouldAppendNewHeaderPerRecipientOnMessage() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(mailWithContent("This is the content", RECIPIENT, RECIPIENT2));
 
         messageReader.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())

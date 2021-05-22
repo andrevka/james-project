@@ -34,7 +34,6 @@ import java.util.Optional;
 
 import javax.mail.Flags;
 import javax.mail.Flags.Flag;
-import javax.mail.util.SharedByteArrayInputStream;
 
 import org.apache.james.core.Username;
 import org.apache.james.mailbox.FlagsBuilder;
@@ -42,6 +41,7 @@ import org.apache.james.mailbox.MessageManager.FlagsUpdateMode;
 import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.ModSeq;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.model.ByteContent;
 import org.apache.james.mailbox.model.Mailbox;
 import org.apache.james.mailbox.model.MailboxCounters;
 import org.apache.james.mailbox.model.MailboxPath;
@@ -71,10 +71,11 @@ public abstract class MessageMapperTest {
     private static final int LIMIT = 10;
     private static final int BODY_START = 16;
     private static final UidValidity UID_VALIDITY = UidValidity.of(42);
-    private static final String USER_FLAG = "userFlag";
 
     private static final String CUSTOMS_USER_FLAGS_VALUE = "CustomsFlags";
     private static final Username BENWA = Username.of("benwa");
+
+    protected static final String USER_FLAG = "userFlag";
 
     private MapperProvider mapperProvider;
     protected MessageMapper messageMapper;
@@ -701,7 +702,7 @@ public abstract class MessageMapperTest {
     }
 
     @Test
-    void flagsReplacementShouldReturnAnUpdatedFlagHighlightingTheReplacement() throws MailboxException {
+    protected void flagsReplacementShouldReturnAnUpdatedFlagHighlightingTheReplacement() throws MailboxException {
         saveMessages();
         ModSeq modSeq = messageMapper.getHighestModSeq(benwaInboxMailbox);
         Optional<UpdatedFlags> updatedFlags = messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(),
@@ -709,6 +710,7 @@ public abstract class MessageMapperTest {
         assertThat(updatedFlags)
             .contains(UpdatedFlags.builder()
                 .uid(message1.getUid())
+                .messageId(message1.getMessageId())
                 .modSeq(modSeq.next())
                 .oldFlags(new Flags())
                 .newFlags(new Flags(Flags.Flag.FLAGGED))
@@ -716,13 +718,14 @@ public abstract class MessageMapperTest {
     }
 
     @Test
-    void flagsAdditionShouldReturnAnUpdatedFlagHighlightingTheAddition() throws MailboxException {
+    protected void flagsAdditionShouldReturnAnUpdatedFlagHighlightingTheAddition() throws MailboxException {
         saveMessages();
         messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(), new FlagsUpdateCalculator(new Flags(Flags.Flag.FLAGGED), FlagsUpdateMode.REPLACE));
         ModSeq modSeq = messageMapper.getHighestModSeq(benwaInboxMailbox);
         assertThat(messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(), new FlagsUpdateCalculator(new Flags(Flags.Flag.SEEN), FlagsUpdateMode.ADD)))
             .contains(UpdatedFlags.builder()
                     .uid(message1.getUid())
+                    .messageId(message1.getMessageId())
                     .modSeq(modSeq.next())
                     .oldFlags(new Flags(Flags.Flag.FLAGGED))
                     .newFlags(new FlagsBuilder().add(Flags.Flag.SEEN, Flags.Flag.FLAGGED).build())
@@ -748,7 +751,7 @@ public abstract class MessageMapperTest {
     }
 
     @Test
-    void flagsRemovalShouldReturnAnUpdatedFlagHighlightingTheRemoval() throws MailboxException {
+    protected void flagsRemovalShouldReturnAnUpdatedFlagHighlightingTheRemoval() throws MailboxException {
         saveMessages();
         messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(), new FlagsUpdateCalculator(new FlagsBuilder().add(Flags.Flag.FLAGGED, Flags.Flag.SEEN).build(), FlagsUpdateMode.REPLACE));
         ModSeq modSeq = messageMapper.getHighestModSeq(benwaInboxMailbox);
@@ -756,6 +759,7 @@ public abstract class MessageMapperTest {
             .contains(
                 UpdatedFlags.builder()
                     .uid(message1.getUid())
+                    .messageId(message1.getMessageId())
                     .modSeq(modSeq.next())
                     .oldFlags(new FlagsBuilder().add(Flags.Flag.SEEN, Flags.Flag.FLAGGED).build())
                     .newFlags(new Flags(Flags.Flag.FLAGGED))
@@ -800,27 +804,26 @@ public abstract class MessageMapperTest {
         propBuilder.setMediaType("text");
         propBuilder.setSubType("html");
         propBuilder.setTextualLineCount(2L);
-        propBuilder.setProperty(StandardNames.NAMESPACE_RFC_2045, StandardNames.MIME_CONTENT_TRANSFER_ENCODING_NAME, "7bit");
-        propBuilder.setProperty(StandardNames.MIME_CONTENT_TYPE_PARAMETER_SPACE, StandardNames.MIME_CONTENT_TYPE_PARAMETER_CHARSET_NAME, "US-ASCII");
+        propBuilder.setContentTransferEncoding("7bit");
+        propBuilder.setCharset("US-ASCII");
 
         MailboxMessage messageWithProperties = createMessage(benwaWorkMailbox, mapperProvider.generateMessageId(), "Subject: messagePropertiesShouldBeStored \n\nBody\n.\n", BODY_START, propBuilder);
         MessageMetaData messageMetaData = messageMapper.add(benwaInboxMailbox, messageWithProperties);
         MailboxMessage message = messageMapper.findInMailbox(benwaInboxMailbox, MessageRange.one(messageMetaData.getUid()), FetchType.Body, 1).next();
 
-        assertProperties(message.getProperties()).containsOnly(propBuilder.toProperties());
+        assertProperties(message.getProperties().toProperties()).containsOnly(propBuilder.toProperties());
     }
     
     @Test
     void messagePropertiesShouldBeStoredWhenDuplicateEntries() throws Exception {
         PropertyBuilder propBuilder = new PropertyBuilder();
-        propBuilder.setProperty(StandardNames.MIME_CONTENT_LANGUAGE_SPACE, StandardNames.MIME_CONTENT_LANGUAGE_NAME, "us");
-        propBuilder.setProperty(StandardNames.MIME_CONTENT_LANGUAGE_SPACE, StandardNames.MIME_CONTENT_LANGUAGE_NAME, "fr");
+        propBuilder.setContentLanguage(ImmutableList.of("us", "fr"));
 
         MailboxMessage messageWithProperties = createMessage(benwaWorkMailbox, mapperProvider.generateMessageId(), "Subject: messagePropertiesShouldBeStoredWhenDuplicateEntries \n\nBody\n.\n", BODY_START, propBuilder);
         MessageMetaData messageMetaData = messageMapper.add(benwaInboxMailbox, messageWithProperties);
         MailboxMessage message = messageMapper.findInMailbox(benwaInboxMailbox, MessageRange.one(messageMetaData.getUid()), FetchType.Body, 1).next();
 
-        assertProperties(message.getProperties()).containsOnly(propBuilder.toProperties());
+        assertProperties(message.getProperties().toProperties()).containsOnly(propBuilder.toProperties());
     }
 
     @Test
@@ -828,7 +831,7 @@ public abstract class MessageMapperTest {
         MailboxMessage messageWithProperties = createMessage(benwaWorkMailbox, mapperProvider.generateMessageId(), "Subject: messagePropertiesShouldBeStoredWhenNoProperty \n\nBody\n.\n", BODY_START, new PropertyBuilder());
         MessageMetaData messageMetaData = messageMapper.add(benwaInboxMailbox, messageWithProperties);
         MailboxMessage message = messageMapper.findInMailbox(benwaInboxMailbox, MessageRange.one(messageMetaData.getUid()), FetchType.Body, 1).next();
-        assertThat(message.getProperties()).isEmpty();
+        assertThat(message.getProperties().toProperties()).isEmpty();
     }
 
     @Test
@@ -875,13 +878,14 @@ public abstract class MessageMapperTest {
     }
 
     @Test
-    void userFlagsUpdateShouldReturnCorrectUpdatedFlags() throws Exception {
+    protected void userFlagsUpdateShouldReturnCorrectUpdatedFlags() throws Exception {
         saveMessages();
         ModSeq modSeq = messageMapper.getHighestModSeq(benwaInboxMailbox);
         assertThat(messageMapper.updateFlags(benwaInboxMailbox, message1.getUid(), new FlagsUpdateCalculator(new Flags(USER_FLAG), FlagsUpdateMode.ADD)))
             .contains(
                 UpdatedFlags.builder()
                     .uid(message1.getUid())
+                    .messageId(message1.getMessageId())
                     .modSeq(modSeq.next())
                     .oldFlags(new Flags())
                     .newFlags(new Flags(USER_FLAG))
@@ -889,7 +893,7 @@ public abstract class MessageMapperTest {
     }
 
     @Test
-    void userFlagsUpdateShouldReturnCorrectUpdatedFlagsWhenNoop() throws Exception {
+    protected void userFlagsUpdateShouldReturnCorrectUpdatedFlagsWhenNoop() throws Exception {
         saveMessages();
 
         assertThat(
@@ -898,6 +902,7 @@ public abstract class MessageMapperTest {
             .contains(
                 UpdatedFlags.builder()
                     .uid(message1.getUid())
+                    .messageId(message1.getMessageId())
                     .modSeq(message1.getModSeq())
                     .oldFlags(new Flags())
                     .newFlags(new Flags())
@@ -905,7 +910,7 @@ public abstract class MessageMapperTest {
     }
 
     @Test
-    void userFlagsUpdateShouldWorkInConcurrentEnvironment() throws Exception {
+    public void userFlagsUpdateShouldWorkInConcurrentEnvironment() throws Exception {
         Assume.assumeTrue(mapperProvider.getSupportedCapabilities().contains(MapperProvider.Capabilities.THREAD_SAFE_FLAGS_UPDATE));
 
         saveMessages();
@@ -926,7 +931,7 @@ public abstract class MessageMapperTest {
     }
 
     @Test
-    void setFlagsShouldWorkWithConcurrencyWithRemove() throws Exception {
+    public void setFlagsShouldWorkWithConcurrencyWithRemove() throws Exception {
         Assume.assumeTrue(mapperProvider.getSupportedCapabilities().contains(MapperProvider.Capabilities.THREAD_SAFE_FLAGS_UPDATE));
         saveMessages();
 
@@ -1251,6 +1256,6 @@ public abstract class MessageMapperTest {
     }
     
     private MailboxMessage createMessage(Mailbox mailbox, MessageId messageId, String content, int bodyStart, PropertyBuilder propertyBuilder) {
-        return new SimpleMailboxMessage(messageId, new Date(), content.length(), bodyStart, new SharedByteArrayInputStream(content.getBytes()), new Flags(), propertyBuilder, mailbox.getMailboxId());
+        return new SimpleMailboxMessage(messageId, new Date(), content.length(), bodyStart, new ByteContent(content.getBytes()), new Flags(), propertyBuilder.build(), mailbox.getMailboxId());
     }
 }

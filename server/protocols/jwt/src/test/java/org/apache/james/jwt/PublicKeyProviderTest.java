@@ -26,10 +26,10 @@ import java.security.interfaces.RSAPublicKey;
 import java.util.Optional;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
-public class PublicKeyProviderTest {
+class PublicKeyProviderTest {
 
     private static final String PUBLIC_PEM_KEY = "-----BEGIN PUBLIC KEY-----\n" +
             "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtlChO/nlVP27MpdkG0Bh\n" +
@@ -41,13 +41,13 @@ public class PublicKeyProviderTest {
             "kwIDAQAB\n" +
             "-----END PUBLIC KEY-----";
 
-    @BeforeClass
-    public static void init() {
+    @BeforeAll
+    static void init() {
         Security.addProvider(new BouncyCastleProvider());
     }
 
     @Test
-    public void getShouldNotThrowWhenPEMKeyProvided() {
+    void getShouldNotThrowWhenPEMKeyProvided() {
 
         JwtConfiguration configWithPEMKey = new JwtConfiguration(Optional.of(PUBLIC_PEM_KEY));
 
@@ -57,7 +57,7 @@ public class PublicKeyProviderTest {
     }
 
     @Test
-    public void getShouldThrowWhenPEMKeyNotProvided() {
+    void getShouldThrowWhenPEMKeyNotProvided() {
         JwtConfiguration configWithPEMKey = new JwtConfiguration(Optional.empty());
 
         PublicKeyProvider sut = new PublicKeyProvider(configWithPEMKey, new PublicKeyReader());

@@ -22,6 +22,7 @@ import org.apache.james.backends.jpa.JpaTestCluster;
 import org.apache.james.core.Domain;
 import org.apache.james.domainlist.api.DomainList;
 import org.apache.james.domainlist.jpa.model.JPADomain;
+import org.apache.james.domainlist.lib.DomainListConfiguration;
 import org.apache.james.domainlist.lib.DomainListContract;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +45,11 @@ class JPADomainListTest implements DomainListContract {
     public void tearDown() throws Exception {
         DomainList domainList = createDomainList();
         for (Domain domain: domainList.getDomains()) {
-            domainList.removeDomain(domain);
+            try {
+                domainList.removeDomain(domain);
+            } catch (Exception e) {
+                // silent: exception arise where clearing auto detected domains
+            }
         }
     }
 
@@ -56,8 +61,10 @@ class JPADomainListTest implements DomainListContract {
     private JPADomainList createDomainList() throws Exception {
         JPADomainList jpaDomainList = new JPADomainList(getDNSServer("localhost"),
             JPA_TEST_CLUSTER.getEntityManagerFactory());
-        jpaDomainList.setAutoDetect(false);
-        jpaDomainList.setAutoDetectIP(false);
+        jpaDomainList.configure(DomainListConfiguration.builder()
+            .autoDetect(false)
+            .autoDetectIp(false)
+            .build());
 
         return jpaDomainList;
     }

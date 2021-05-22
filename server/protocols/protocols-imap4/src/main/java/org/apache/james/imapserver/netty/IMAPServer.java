@@ -79,7 +79,7 @@ public class IMAPServer extends AbstractConfigurableAsyncServer implements ImapC
 
     public static final int DEFAULT_MAX_LINE_LENGTH = 65536; // Use a big default
     public static final int DEFAULT_IN_MEMORY_SIZE_LIMIT = 10485760; // Use 10MB as default
-    public static final int DEFAULT_TIMEOUT = 30 * 60; // default timeout is 30 seconds
+    public static final int DEFAULT_TIMEOUT = 30 * 60; // default timeout is 30 minutes
     public static final int DEFAULT_LITERAL_SIZE_LIMIT = 0;
 
     public IMAPServer(ImapDecoder decoder, ImapEncoder encoder, ImapProcessor processor, ImapMetrics imapMetrics) {
@@ -94,7 +94,7 @@ public class IMAPServer extends AbstractConfigurableAsyncServer implements ImapC
         
         super.doConfigure(configuration);
         
-        hello = softwaretype + " Server " + getHelloName() + " is ready.";
+        hello = softwaretype + getHelloName() + " is ready.";
         compress = configuration.getBoolean("compress", false);
         maxLineLength = configuration.getInt("maxLineLength", DEFAULT_MAX_LINE_LENGTH);
         inMemorySizeLimit = configuration.getInt("inMemorySizeLimit", DEFAULT_IN_MEMORY_SIZE_LIMIT);
@@ -104,10 +104,6 @@ public class IMAPServer extends AbstractConfigurableAsyncServer implements ImapC
         timeout = configuration.getInt("timeout", DEFAULT_TIMEOUT);
         if (timeout < DEFAULT_TIMEOUT) {
             throw new ConfigurationException("Minimum timeout of 30 minutes required. See rfc2060 5.4 for details");
-        }
-        
-        if (timeout < 0) {
-            timeout = 0;
         }
 
         processor.configure(getImapConfiguration(configuration));

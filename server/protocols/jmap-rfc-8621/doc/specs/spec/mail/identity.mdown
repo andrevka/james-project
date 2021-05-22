@@ -1,8 +1,7 @@
 # Identities
 
-<aside class="warning">
-  Not implemented yet
-</aside>
+> :warning:
+> Partially implemented.
 
 An **Identity** object stores information about an email address or domain the user may send from. It has the following properties:
 
@@ -35,9 +34,15 @@ This is a standard "/get" method as described in [@!RFC8620], Section 5.1. The *
 
 ## Identity/changes
 
+> :warning:
+> Not implemented.
+
 This is a standard "/changes" method as described in [@!RFC8620], Section 5.2.
 
 ## Identity/set
+
+> :warning:
+> Not implemented.
 
 This is a standard "/set" method as described in [@!RFC8620], Section 5.3. The following extra *SetError* types are defined:
 

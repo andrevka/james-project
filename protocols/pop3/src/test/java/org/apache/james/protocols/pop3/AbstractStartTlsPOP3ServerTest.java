@@ -25,6 +25,7 @@ import java.util.Arrays;
 
 import org.apache.commons.net.pop3.POP3Reply;
 import org.apache.commons.net.pop3.POP3SClient;
+import org.apache.james.metrics.tests.RecordingMetricFactory;
 import org.apache.james.protocols.api.Encryption;
 import org.apache.james.protocols.api.Protocol;
 import org.apache.james.protocols.api.ProtocolServer;
@@ -35,7 +36,7 @@ import org.apache.james.protocols.api.utils.ProtocolServerUtils;
 import org.apache.james.protocols.pop3.core.AbstractPassCmdHandler;
 import org.apache.james.protocols.pop3.utils.MockMailbox;
 import org.apache.james.protocols.pop3.utils.TestPassCmdHandler;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public abstract class AbstractStartTlsPOP3ServerTest {
 
@@ -62,7 +63,7 @@ public abstract class AbstractStartTlsPOP3ServerTest {
         ProtocolServer server = null;
         try {
             String identifier = "id";
-            TestPassCmdHandler handler = new TestPassCmdHandler();
+            TestPassCmdHandler handler = new TestPassCmdHandler(new RecordingMetricFactory());
             
             handler.add("valid", new MockMailbox(identifier));
             server = createServer(createProtocol(handler), address, Encryption.createStartTls(BogusSslContextFactory.getServerContext()));

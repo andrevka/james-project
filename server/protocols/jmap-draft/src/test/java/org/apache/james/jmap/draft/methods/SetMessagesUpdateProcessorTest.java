@@ -92,6 +92,7 @@ public class SetMessagesUpdateProcessorTest {
     private static final InMemoryId OUTBOX_ID = InMemoryId.of(12345);
     private static final String DRAFTS = "drafts";
     private static final InMemoryId DRAFTS_ID = InMemoryId.of(12);
+    private static final Long TEST_MESSAGE_SIZE = 1L;
 
     public static class TestSystemMailboxesProvider implements SystemMailboxesProvider {
 
@@ -178,8 +179,10 @@ public class SetMessagesUpdateProcessorTest {
         referenceUpdater = new ReferenceUpdater(mockMessageIdManager, mockedMailboxManager);
 
         UpdateMessagePatchConverter updateMessagePatchConverter = null;
+        MailboxManager mailboxManager = null;
         sut = new SetMessagesUpdateProcessor(updateMessagePatchConverter,
             messageIdManager,
+            mailboxManager,
             fakeSystemMailboxesProvider,
             mockedMailboxIdFactory,
             messageSender,
@@ -198,7 +201,7 @@ public class SetMessagesUpdateProcessorTest {
 
         when(outbox.appendMessage(any(MessageManager.AppendCommand.class), any(MailboxSession.class)))
             .thenReturn(new MessageManager.AppendResult(
-                new ComposedMessageId(OUTBOX_ID, TestMessageId.of(23), MessageUid.of(1)),
+                new ComposedMessageId(OUTBOX_ID, TestMessageId.of(23), MessageUid.of(1)), TEST_MESSAGE_SIZE,
                 Optional.empty()));
 
         drafts = mock(MessageManager.class);
@@ -212,7 +215,7 @@ public class SetMessagesUpdateProcessorTest {
     public void processShouldReturnEmptyUpdatedWhenRequestHasEmptyUpdate() {
         SetMessagesRequest requestWithEmptyUpdate = SetMessagesRequest.builder().build();
 
-        SetMessagesResponse result = sut.process(requestWithEmptyUpdate, null);
+        SetMessagesResponse result = sut.process(requestWithEmptyUpdate, session);
 
         assertThat(result.getUpdated()).isEmpty();
         assertThat(result.getNotUpdated()).isEmpty();
@@ -234,8 +237,10 @@ public class SetMessagesUpdateProcessorTest {
                 .thenReturn(mockInvalidPatch);
 
 
+        MailboxManager mailboxManager = null;
         SetMessagesUpdateProcessor sut = new SetMessagesUpdateProcessor(mockConverter,
             mockMessageIdManager,
+            mailboxManager,
             fakeSystemMailboxesProvider,
             mockedMailboxIdFactory,
             messageSender,
@@ -248,7 +253,7 @@ public class SetMessagesUpdateProcessorTest {
                 .build();
 
         // When
-        SetMessagesResponse result = sut.process(requestWithInvalidUpdate, null);
+        SetMessagesResponse result = sut.process(requestWithInvalidUpdate, session);
 
         // Then
         assertThat(result.getNotUpdated()).describedAs("NotUpdated should not be empty").isNotEmpty();

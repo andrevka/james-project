@@ -33,6 +33,7 @@ import static org.apache.james.jmap.JmapCommonRequests.getAllMailboxesIds;
 import static org.apache.james.jmap.JmapCommonRequests.getLatestMessageId;
 import static org.apache.james.jmap.JmapCommonRequests.getOutboxId;
 import static org.apache.james.jmap.JmapCommonRequests.listMessageIdsForAccount;
+import static org.apache.james.jmap.JmapCommonRequests.listMessageIdsInMailbox;
 import static org.apache.james.jmap.LocalHostURIBuilder.baseUri;
 import static org.apache.james.mailbox.backup.ZipAssert.EntryChecks.hasName;
 import static org.apache.james.mailbox.backup.ZipAssert.assertThatZip;
@@ -41,6 +42,8 @@ import static org.apache.james.webadmin.integration.vault.DeletedMessagesVaultRe
 import static org.apache.james.webadmin.integration.vault.DeletedMessagesVaultRequests.purgeVault;
 import static org.apache.james.webadmin.integration.vault.DeletedMessagesVaultRequests.restoreMessagesForUserWithQuery;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Durations.FIVE_SECONDS;
+import static org.awaitility.Durations.TWO_MINUTES;
 import static org.hamcrest.Matchers.hasItem;
 
 import java.io.FileInputStream;
@@ -69,7 +72,6 @@ import org.apache.james.utils.TestIMAPClient;
 import org.apache.james.utils.UpdatableTickingClock;
 import org.apache.james.utils.WebAdminGuiceProbe;
 import org.apache.james.webadmin.WebAdminUtils;
-import org.awaitility.Duration;
 import org.awaitility.core.ConditionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -94,7 +96,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
         private UpdatableTickingClock clock;
 
         @Override
-        public void beforeEach(ExtensionContext extensionContext) throws Exception {
+        public void beforeEach(ExtensionContext extensionContext) {
             clock = new UpdatableTickingClock(NOW.toInstant());
         }
 
@@ -123,7 +125,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
     private static final String JACK = "jack@" + DOMAIN;
     private static final String PASSWORD = "password";
     private static final String BOB_PASSWORD = "bobPassword";
-    private static final ConditionFactory WAIT_TWO_MINUTES = calmlyAwait.atMost(Duration.TWO_MINUTES);
+    private static final ConditionFactory WAIT_TWO_MINUTES = calmlyAwait.atMost(TWO_MINUTES);
     private static final String SUBJECT = "This mail will be restored from the vault!!";
     private static final String MAILBOX_NAME = "toBeDeleted";
     private static final String MATCH_ALL_QUERY = "{" +
@@ -186,13 +188,13 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultEndpointShouldRestoreJmapDeletedEmail() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageId = listMessageIdsForAccount(homerAccessToken).get(0);
         given()
@@ -210,7 +212,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultEndpointShouldRestoreImapDeletedEmail(GuiceJamesServer jmapServer) throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         testIMAPClient.connect(LOCALHOST_IP, jmapServer.getProbe(ImapGuiceProbe.class).getImapPort())
             .login(HOMER, PASSWORD)
@@ -218,10 +220,10 @@ public abstract class DeletedMessageVaultIntegrationTest {
             .setFlagsForAllMessagesInMailbox("\\Deleted");
         testIMAPClient.expunge();
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageId = listMessageIdsForAccount(homerAccessToken).get(0);
         given()
@@ -239,20 +241,21 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultEndpointShouldRestoreImapDeletedMailbox(GuiceJamesServer jmapServer) throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         testIMAPClient.connect(LOCALHOST_IP, jmapServer.getProbe(ImapGuiceProbe.class).getImapPort())
             .login(HOMER, PASSWORD)
             .select(TestIMAPClient.INBOX);
 
         testIMAPClient.moveFirstMessage(MAILBOX_NAME);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsInMailbox(homerAccessToken, otherMailboxId.serialize())).hasSize(1));
 
         testIMAPClient.delete(MAILBOX_NAME);
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageId = listMessageIdsForAccount(homerAccessToken).get(0);
         given()
@@ -269,13 +272,13 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void restoreShouldCreateRestoreMessagesMailbox() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         assertThat(homerHasMailboxWithRole(Role.RESTORED_MESSAGES)).isTrue();
     }
@@ -284,11 +287,11 @@ public abstract class DeletedMessageVaultIntegrationTest {
     void postShouldRestoreMatchingMessages() {
         bartSendMessageToHomerWithSubject("aaaaa");
         bartSendMessageToHomerWithSubject("bbbbb");
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 2);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(2));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         String query = "{" +
             "  \"combinator\": \"and\"," +
@@ -302,7 +305,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
             "}";
         restoreMessagesForUserWithQuery(webAdminApi, HOMER, query);
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageId = listMessageIdsForAccount(homerAccessToken).get(0);
         given()
@@ -320,11 +323,11 @@ public abstract class DeletedMessageVaultIntegrationTest {
     void postShouldNotRestoreWhenNoMatchingMessages() throws Exception {
         bartSendMessageToHomerWithSubject("aaaaa");
         bartSendMessageToHomerWithSubject("bbbbb");
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 2);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(2));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         String query = "{" +
             "  \"combinator\": \"and\"," +
@@ -339,7 +342,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
         restoreMessagesForUserWithQuery(webAdminApi, HOMER, query);
 
 
-        Thread.sleep(Duration.FIVE_SECONDS.getValueInMS());
+        Thread.sleep(FIVE_SECONDS.toMillis());
 
         // No additional had been restored for Bart as the vault is empty
         assertThat(listMessageIdsForAccount(homerAccessToken).size())
@@ -349,7 +352,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void imapMovedMessageShouldNotEndUpInTheVault(GuiceJamesServer jmapServer) throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         testIMAPClient.connect(LOCALHOST_IP, jmapServer.getProbe(ImapGuiceProbe.class).getImapPort())
             .login(HOMER, PASSWORD)
@@ -359,7 +362,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
 
         //Moved messages should not be moved to the vault
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
 
         // No messages restored for bart
@@ -369,14 +372,14 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void jmapMovedMessageShouldNotEndUpInTheVault() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
         String messageId = listMessageIdsForAccount(homerAccessToken).get(0);
 
         homerMovesTheMailInAnotherMailbox(messageId);
 
         //Moved messages should not be moved to the vault
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
 
         // No messages restored for bart
@@ -386,16 +389,16 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void restoreShouldNotImpactOtherUsers() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         bartDeletesMessages(listMessageIdsForAccount(bartAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(bartAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(bartAccessToken)).hasSize(0));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         // No messages restored for bart
         assertThat(listMessageIdsForAccount(bartAccessToken).size()).isEqualTo(0);
@@ -404,22 +407,22 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void restoredMessagesShouldNotBeRemovedFromTheVault() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 2);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(2));
     }
 
     @Test
     void vaultEndpointShouldNotRestoreItemsWhenTheVaultIsEmpty() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         restoreAllMessagesOfHomer();
         awaitSearchUpToDate();
@@ -432,8 +435,8 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultEndpointShouldNotRestoreMessageForSharee() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(bartAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(bartAccessToken)).hasSize(1));
 
         String messageId = listMessageIdsForAccount(homerAccessToken).get(0);
         homerMovesTheMailInAnotherMailbox(messageId);
@@ -441,7 +444,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
         homerSharesHisMailboxWithBart();
 
         bartDeletesMessages(ImmutableList.of(messageId));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         restoreMessagesFor(BART);
         awaitSearchUpToDate();
@@ -454,7 +457,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultEndpointShouldRestoreMessageForSharer() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageId = listMessageIdsForAccount(homerAccessToken).get(0);
         homerMovesTheMailInAnotherMailbox(messageId);
@@ -462,10 +465,10 @@ public abstract class DeletedMessageVaultIntegrationTest {
         homerSharesHisMailboxWithBart();
 
         bartDeletesMessages(ImmutableList.of(messageId));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         restoreAllMessagesOfHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String newMessageId = listMessageIdsForAccount(homerAccessToken).get(0);
         given()
@@ -483,11 +486,11 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultExportShouldExportZipContainsVaultMessagesToShareeWhenJmapDeleteMessage() throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
         String messageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         String fileLocation = exportAndGetFileLocationFromLastMail(EXPORT_ALL_HOMER_MESSAGES_TO_BART, bartAccessToken);
 
@@ -501,7 +504,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultExportShouldExportZipContainsVaultMessagesToShareeWhenImapDeleteMessage(GuiceJamesServer jmapServer) throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
         String messageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
         testIMAPClient.connect(LOCALHOST_IP, jmapServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -510,7 +513,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
             .setFlagsForAllMessagesInMailbox("\\Deleted");
         testIMAPClient.expunge();
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         String fileLocation = exportAndGetFileLocationFromLastMail(EXPORT_ALL_HOMER_MESSAGES_TO_BART, bartAccessToken);
 
@@ -524,7 +527,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     public void vaultExportShouldExportZipContainsVaultMessagesToShareeWhenImapDeletedMailbox(GuiceJamesServer jmapServer) throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
         String messageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
         testIMAPClient.connect(LOCALHOST_IP, jmapServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -535,7 +538,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
 
         testIMAPClient.delete(MAILBOX_NAME);
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         String fileLocation = exportAndGetFileLocationFromLastMail(EXPORT_ALL_HOMER_MESSAGES_TO_BART, bartAccessToken);
 
@@ -548,14 +551,14 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultExportShouldExportZipContainsOnlyMatchedMessages() throws Exception {
         bartSendMessageToHomerWithSubject(FIRST_SUBJECT);
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
         String firstMessageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
         bartSendMessageToHomerWithSubject(SECOND_SUBJECT);
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 2);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(2));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         ExportRequest exportRequest = ExportRequest
             .userExportFrom(HOMER)
@@ -576,10 +579,10 @@ public abstract class DeletedMessageVaultIntegrationTest {
     void vaultExportShouldExportEmptyZipWhenQueryDoesntMatch() throws Exception {
         bartSendMessageToHomerWithSubject(FIRST_SUBJECT);
         bartSendMessageToHomerWithSubject(SECOND_SUBJECT);
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 2);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(2));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         ExportRequest exportRequest = ExportRequest
             .userExportFrom(HOMER)
@@ -608,10 +611,10 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultExportShouldResponseIdempotentSideEffect() throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         String fileLocationFirstExport = exportAndGetFileLocationFromLastMail(EXPORT_ALL_HOMER_MESSAGES_TO_BART, bartAccessToken);
         String fileLocationSecondExport = exportAndGetFileLocationFromLastMail(EXPORT_ALL_HOMER_MESSAGES_TO_BART, bartAccessToken);
@@ -626,10 +629,10 @@ public abstract class DeletedMessageVaultIntegrationTest {
         bartSendMessageToHomer();
         bartSendMessageToHomer();
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 3);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(3));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         clock.setInstant(TWO_MONTH_AFTER_ONE_YEAR_EXPIRATION.toInstant());
         purgeVault(webAdminApi);
@@ -643,19 +646,19 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultPurgeShouldMakeExportProduceAZipWhenOneMessageIsNotExpired(UpdatableTickingClock clock) throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageIdOfNotExpiredMessage = listMessageIdsForAccount(homerAccessToken).get(0);
 
         clock.setInstant(TWO_MONTH_AFTER_ONE_YEAR_EXPIRATION.toInstant());
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         purgeVault(webAdminApi);
 
@@ -671,10 +674,10 @@ public abstract class DeletedMessageVaultIntegrationTest {
         bartSendMessageToHomer();
         bartSendMessageToHomer();
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 3);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(3));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         purgeVault(webAdminApi);
 
@@ -687,10 +690,10 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultPurgeShouldNotAppendMessageToTheUserMailbox(UpdatableTickingClock clock) {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         clock.setInstant(TWO_MONTH_AFTER_ONE_YEAR_EXPIRATION.toInstant());
         purgeVault(webAdminApi);
@@ -702,12 +705,12 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultDeleteShouldDeleteMessageThenExportWithNoEntry() throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         deleteFromVault(webAdminApi, HOMER, messageIdOfHomer);
 
@@ -720,7 +723,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultDeleteShouldNotDeleteEmptyVaultThenExportNoEntry() throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
@@ -735,14 +738,14 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultDeleteShouldNotDeleteNotMatchedMessageInVaultThenExportAnEntry() throws Exception {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
         String messageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(bartAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(bartAccessToken)).hasSize(1));
         String messageIdOfBart = listMessageIdsForAccount(bartAccessToken).get(0);
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         deleteFromVault(webAdminApi, HOMER, messageIdOfBart);
 
@@ -756,12 +759,12 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultDeleteShouldNotAppendMessageToTheUserMailbox() {
         bartSendMessageToHomer();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String messageIdOfHomer = listMessageIdsForAccount(homerAccessToken).get(0);
 
         homerDeletesMessages(listMessageIdsForAccount(homerAccessToken));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         deleteFromVault(webAdminApi, HOMER, messageIdOfHomer);
 
@@ -772,16 +775,16 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultDeleteShouldDeleteAllMessagesHavingSameBlobContent() throws Exception {
         bartSendMessageToHomerAndJack();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String homerInboxMessageId = listMessageIdsForAccount(homerAccessToken).get(0);
         homerDeletesMessages(ImmutableList.of(homerInboxMessageId));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         // the message same with homer's one in inbox
         String jackInboxMessageId = listMessageIdsForAccount(jackAccessToken).get(0);
         jackDeletesMessages(ImmutableList.of(jackInboxMessageId));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(jackAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(jackAccessToken)).hasSize(0));
 
         // delete from homer's vault, expecting the message contains the same blob in jack's vault will be deleted
         deleteFromVault(webAdminApi, HOMER, homerInboxMessageId);
@@ -795,18 +798,18 @@ public abstract class DeletedMessageVaultIntegrationTest {
     @Test
     void vaultDeleteShouldNotDeleteAllMessagesHavingSameBlobContentWhenMessageNotDeletedWithinTheSameMonth(UpdatableTickingClock clock) throws Exception {
         bartSendMessageToHomerAndJack();
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(1));
 
         String homerInboxMessageId = listMessageIdsForAccount(homerAccessToken).get(0);
         homerDeletesMessages(ImmutableList.of(homerInboxMessageId));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(homerAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(homerAccessToken)).hasSize(0));
 
         // one year later, delete jack's message
         clock.setInstant(NOW.plusYears(1).toInstant());
         // the message same with homer's one in inbox
         String jackInboxMessageId = listMessageIdsForAccount(jackAccessToken).get(0);
         jackDeletesMessages(ImmutableList.of(jackInboxMessageId));
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(jackAccessToken).size() == 0);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(jackAccessToken)).hasSize(0));
 
         // delete from homer's vault, expecting jack's vault still be intact
         deleteFromVault(webAdminApi, HOMER, homerInboxMessageId);
@@ -822,7 +825,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
         int currentNumberOfMessages = listMessageIdsForAccount(shareeAccessToken).size();
         exportVaultContent(webAdminApi, exportRequest);
 
-        WAIT_TWO_MINUTES.until(() -> listMessageIdsForAccount(shareeAccessToken).size() == currentNumberOfMessages + 1);
+        WAIT_TWO_MINUTES.untilAsserted(() -> assertThat(listMessageIdsForAccount(shareeAccessToken)).hasSize(currentNumberOfMessages + 1));
         String exportingMessageId = getLatestMessageId(shareeAccessToken, Role.INBOX);
 
         return exportedFileLocationFromMailHeader(exportingMessageId, shareeAccessToken);
@@ -846,7 +849,7 @@ public abstract class DeletedMessageVaultIntegrationTest {
                 "    {" +
                 "      \"update\": {" +
                 "        \"" + otherMailboxId.serialize() + "\" : {" +
-                "          \"sharedWith\" : {\"" + BART + "\": [\"l\", \"w\", \"r\"]}" +
+                "          \"sharedWith\" : {\"" + BART + "\": [\"l\", \"w\", \"t\", \"r\"]}" +
                 "        }" +
                 "      }" +
                 "    }," +

@@ -32,6 +32,7 @@ import org.apache.james.backends.cassandra.CassandraClusterExtension;
 import org.apache.james.backends.cassandra.StatementRecorder;
 import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
 import org.apache.james.core.Username;
+import org.apache.james.junit.categories.Unstable;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MailboxSessionUtil;
 import org.apache.james.mailbox.MessageManager;
@@ -46,6 +47,7 @@ import org.apache.james.mailbox.store.mail.model.MessageIdMapperTest;
 import org.apache.james.util.streams.Limit;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -62,7 +64,8 @@ class CassandraMessageIdMapperTest extends MessageIdMapperTest {
     protected CassandraMapperProvider provideMapper() {
         return new CassandraMapperProvider(
             cassandraCluster.getCassandraCluster(),
-            cassandraCluster.getCassandraConsistenciesConfiguration());
+            cassandraCluster.getCassandraConsistenciesConfiguration(),
+            CassandraConfiguration.DEFAULT_CONFIGURATION);
     }
 
     @Test
@@ -90,6 +93,14 @@ class CassandraMessageIdMapperTest extends MessageIdMapperTest {
     }
 
     @Test
+    @Tag(Unstable.TAG)
+    /*
+    https://builds.apache.org/blue/organizations/jenkins/james%2FApacheJames/detail/PR-264/5/tests
+    Error
+    Could not send request, session is closed
+    Stacktrace
+    java.lang.IllegalStateException: Could not send request, session is closed
+     */
     void setFlagsShouldMinimizeMessageReads(CassandraCluster cassandra) throws Exception {
         CassandraMessageId.Factory messageIdFactory = new CassandraMessageId.Factory();
         CassandraMailboxSessionMapperFactory mapperFactory = TestCassandraMailboxSessionMapperFactory.forTests(
@@ -107,7 +118,8 @@ class CassandraMessageIdMapperTest extends MessageIdMapperTest {
         mapperFactory.getMessageIdMapper(MAILBOX_SESSION).setFlags(message1.getMessageId(),
             ImmutableList.of(message1.getMailboxId()),
             new Flags(Flags.Flag.DELETED),
-            MessageManager.FlagsUpdateMode.REPLACE);
+            MessageManager.FlagsUpdateMode.REPLACE)
+            .block();
 
         assertThat(statementRecorder.listExecutedStatements(
             StatementRecorder.Selector.preparedStatementStartingWith("SELECT messageId,mailboxId,uid,modSeq,flagAnswered,flagDeleted," +
@@ -122,7 +134,7 @@ class CassandraMessageIdMapperTest extends MessageIdMapperTest {
             cassandra.getConf()
                 .registerScenario(fail()
                     .forever()
-                    .whenQueryStartsWith("INSERT INTO messageV2 (messageId,internalDate,bodyStartOctet,fullContentOctets,bodyOctets,bodyContent,headerContent,properties,textualLineCount,attachments)"));
+                    .whenQueryStartsWith("INSERT INTO messageV3"));
 
             try {
                 message1.setUid(mapperProvider.generateMessageUid());
@@ -231,7 +243,8 @@ class CassandraMessageIdMapperTest extends MessageIdMapperTest {
             CassandraMessageIdToImapUidDAO imapUidDAO = new CassandraMessageIdToImapUidDAO(
                 cassandra.getConf(),
                 cassandraCluster.getCassandraConsistenciesConfiguration(),
-                new CassandraMessageId.Factory());
+                new CassandraMessageId.Factory(),
+                CassandraConfiguration.DEFAULT_CONFIGURATION);
 
             SoftAssertions.assertSoftly(Throwing.consumer(softly -> {
                 softly.assertThat(sut.find(ImmutableList.of(message1.getMessageId()), MessageMapper.FetchType.Metadata))

@@ -34,10 +34,15 @@ import java.util.concurrent.CountDownLatch;
 
 import javax.mail.Flags;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.core.quota.QuotaCountLimit;
 import org.apache.james.core.quota.QuotaCountUsage;
 import org.apache.james.core.quota.QuotaSizeLimit;
 import org.apache.james.core.quota.QuotaSizeUsage;
+import org.apache.james.events.EventBus;
+import org.apache.james.events.InVMEventBus;
+import org.apache.james.events.MemoryEventDeadLetters;
+import org.apache.james.events.delivery.InVmEventDelivery;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MailboxSessionUtil;
 import org.apache.james.mailbox.MessageIdManager;
@@ -46,14 +51,11 @@ import org.apache.james.mailbox.MessageManager.FlagsUpdateMode;
 import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.MetadataWithMailboxId;
 import org.apache.james.mailbox.ModSeq;
-import org.apache.james.mailbox.events.EventBus;
-import org.apache.james.mailbox.events.EventBusTestFixture;
-import org.apache.james.mailbox.events.InVMEventBus;
-import org.apache.james.mailbox.events.MailboxListener;
-import org.apache.james.mailbox.events.MemoryEventDeadLetters;
+import org.apache.james.mailbox.events.MailboxEvents.Added;
+import org.apache.james.mailbox.events.MailboxEvents.Expunged;
+import org.apache.james.mailbox.events.MailboxEvents.FlagsUpdated;
+import org.apache.james.mailbox.events.MailboxEvents.MailboxEvent;
 import org.apache.james.mailbox.events.MessageMoveEvent;
-import org.apache.james.mailbox.events.delivery.InVmEventDelivery;
-import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.OverQuotaException;
 import org.apache.james.mailbox.extension.PreDeletionHook;
 import org.apache.james.mailbox.fixture.MailboxFixture;
@@ -80,6 +82,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 public abstract class AbstractMessageIdManagerSideEffectTest {
     private static final Quota<QuotaCountLimit, QuotaCountUsage> OVER_QUOTA = Quota.<QuotaCountLimit, QuotaCountUsage>builder()
@@ -107,9 +110,14 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        eventBus = new InVMEventBus(new InVmEventDelivery(new RecordingMetricFactory()), EventBusTestFixture.RETRY_BACKOFF_CONFIGURATION, new MemoryEventDeadLetters());
+        eventBus = new InVMEventBus(new InVmEventDelivery(new RecordingMetricFactory()), StoreMailboxManagerTest.RETRY_BACKOFF_CONFIGURATION, new MemoryEventDeadLetters());
         eventCollector = new EventCollector();
         quotaManager = mock(QuotaManager.class);
+
+        when(quotaManager.getQuotasReactive(any(QuotaRoot.class)))
+            .thenReturn(Mono.just(new QuotaManager.Quotas(
+                Quota.<QuotaCountLimit, QuotaCountUsage>builder().used(QuotaCountUsage.count(102)).computedLimit(QuotaCountLimit.unlimited()).build(),
+                Quota.<QuotaSizeLimit, QuotaSizeUsage>builder().used(QuotaSizeUsage.size(2)).computedLimit(QuotaSizeLimit.unlimited()).build())));
 
         session = MailboxSessionUtil.create(ALICE);
         setupMockForPreDeletionHooks();
@@ -143,10 +151,10 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         messageIdManager.delete(messageId, ImmutableList.of(mailbox1.getMailboxId()), session);
 
         assertThat(eventCollector.getEvents())
-            .filteredOn(event -> event instanceof MailboxListener.Expunged)
+            .filteredOn(event -> event instanceof Expunged)
             .hasSize(1).first()
             .satisfies(e -> {
-                MailboxListener.Expunged event = (MailboxListener.Expunged) e;
+                Expunged event = (Expunged) e;
                 assertThat(event.getMailboxId()).isEqualTo(mailbox1.getMailboxId());
                 assertThat(event.getMailboxPath()).isEqualTo(mailbox1.generateAssociatedPath());
                 assertThat(event.getExpunged().values()).containsOnly(simpleMessageMetaData);
@@ -166,15 +174,17 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         MessageMetaData simpleMessageMetaData2 = messageResult2.messageMetaData();
 
         eventBus.register(eventCollector);
-        messageIdManager.delete(ImmutableList.of(messageId1, messageId2), session);
+        Mono.from(messageIdManager.delete(ImmutableList.of(messageId1, messageId2), session))
+            .subscribeOn(Schedulers.elastic())
+            .block();
 
-        AbstractListAssert<?, List<? extends MailboxListener.Expunged>, MailboxListener.Expunged, ObjectAssert<MailboxListener.Expunged>> events =
+        AbstractListAssert<?, List<? extends Expunged>, Expunged, ObjectAssert<Expunged>> events =
             assertThat(eventCollector.getEvents())
-                .filteredOn(event -> event instanceof MailboxListener.Expunged)
+                .filteredOn(event -> event instanceof Expunged)
                 .hasSize(2)
-                .extracting(event -> (MailboxListener.Expunged) event);
-        events.extracting(MailboxListener.MailboxEvent::getMailboxId).containsOnly(mailbox1.getMailboxId(), mailbox1.getMailboxId());
-        events.extracting(MailboxListener.Expunged::getExpunged)
+                .extracting(event -> (Expunged) event);
+        events.extracting(MailboxEvent::getMailboxId).containsOnly(mailbox1.getMailboxId(), mailbox1.getMailboxId());
+        events.extracting(Expunged::getExpunged)
             .containsOnly(ImmutableSortedMap.of(simpleMessageMetaData1.getUid(), simpleMessageMetaData1),
                 ImmutableSortedMap.of(simpleMessageMetaData2.getUid(), simpleMessageMetaData2));
     }
@@ -332,9 +342,31 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         messageIdManager.setInMailboxes(messageId, ImmutableList.of(mailbox1.getMailboxId(), mailbox2.getMailboxId()), session);
 
         assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MessageMoveEvent).hasSize(1);
-        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MailboxListener.Added).hasSize(1)
-            .extracting(event -> (MailboxListener.Added) event).extracting(MailboxListener.Added::getMailboxId)
+        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof Added).hasSize(1)
+            .extracting(event -> (Added) event).extracting(Added::getMailboxId)
             .containsOnly(mailbox1.getMailboxId());
+    }
+
+    @Test
+    void setInMailboxesShouldUseTheRightMessageUidsInExpunged() throws Exception {
+        givenUnlimitedQuota();
+        MessageId messageId = testingData.persist(mailbox2.getMailboxId(), messageUid1, FLAGS, session);
+        testingData.persist(mailbox1.getMailboxId(), messageUid1, FLAGS, session);
+        testingData.persist(mailbox1.getMailboxId(), messageUid2, FLAGS, session);
+        messageIdManager.setInMailboxes(messageId, ImmutableList.of(mailbox1.getMailboxId(), mailbox2.getMailboxId(), mailbox3.getMailboxId()), session);
+        List<MessageResult> messages = messageIdManager.getMessage(messageId, FetchGroup.MINIMAL, session);
+        MessageUid uidMailbox1 = messages.stream().filter(message -> message.getMailboxId().equals(mailbox1.getMailboxId())).map(MessageResult::getUid).findFirst().get();
+        MessageUid uidMailbox3 = messages.stream().filter(message -> message.getMailboxId().equals(mailbox3.getMailboxId())).map(MessageResult::getUid).findFirst().get();
+
+
+        eventBus.register(eventCollector);
+        messageIdManager.setInMailboxes(messageId, ImmutableList.of(mailbox2.getMailboxId()), session);
+
+        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MessageMoveEvent).hasSize(1);
+        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof Expunged).hasSize(2)
+            .extracting(event -> (Expunged) event)
+            .extracting(event -> Pair.of(event.getMailboxId(), ImmutableList.copyOf(event.getUids())))
+            .containsOnly(Pair.of(mailbox1.getMailboxId(), ImmutableList.of(uidMailbox1)), Pair.of(mailbox3.getMailboxId(), ImmutableList.of(uidMailbox3)));
     }
 
     @Test
@@ -348,20 +380,19 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         messageIdManager.getMessage(messageId, FetchGroup.MINIMAL, session);
 
         assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MessageMoveEvent).hasSize(1);
-        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MailboxListener.Added).hasSize(2)
-            .extracting(event -> (MailboxListener.Added) event).extracting(MailboxListener.Added::getMailboxId)
+        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof Added).hasSize(2)
+            .extracting(event -> (Added) event).extracting(Added::getMailboxId)
             .containsOnly(mailbox1.getMailboxId(), mailbox3.getMailboxId());
     }
 
     @Test
-    void setInMailboxesShouldThrowExceptionWhenOverQuota() throws Exception {
+    void setInMailboxesShouldThrowExceptionWhenOverQuota() {
         MessageId messageId = testingData.persist(mailbox1.getMailboxId(), messageUid1, FLAGS, session);
 
-        when(quotaManager.getStorageQuota(any(QuotaRoot.class))).thenReturn(
-            Quota.<QuotaSizeLimit, QuotaSizeUsage>builder().used(QuotaSizeUsage.size(2)).computedLimit(QuotaSizeLimit.unlimited()).build());
-        when(quotaManager.getMessageQuota(any(QuotaRoot.class))).thenReturn(OVER_QUOTA);
-        when(quotaManager.getStorageQuota(any(QuotaRoot.class))).thenReturn(
-            Quota.<QuotaSizeLimit, QuotaSizeUsage>builder().used(QuotaSizeUsage.size(2)).computedLimit(QuotaSizeLimit.unlimited()).build());
+        when(quotaManager.getQuotasReactive(any(QuotaRoot.class)))
+            .thenReturn(Mono.just(new QuotaManager.Quotas(
+                OVER_QUOTA,
+                Quota.<QuotaSizeLimit, QuotaSizeUsage>builder().used(QuotaSizeUsage.size(2)).computedLimit(QuotaSizeLimit.unlimited()).build())));
 
         assertThatThrownBy(() -> messageIdManager.setInMailboxes(messageId,
                 ImmutableList.of(mailbox1.getMailboxId(), mailbox2.getMailboxId()),
@@ -382,11 +413,11 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         messageIdManager.setInMailboxes(messageId, ImmutableList.of(mailbox1.getMailboxId(), mailbox3.getMailboxId()), session);
 
         assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MessageMoveEvent).hasSize(1);
-        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MailboxListener.Added).hasSize(1)
-            .extracting(event -> (MailboxListener.Added) event).extracting(MailboxListener.Added::getMailboxId)
+        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof Added).hasSize(1)
+            .extracting(event -> (Added) event).extracting(Added::getMailboxId)
             .containsOnly(mailbox3.getMailboxId());
-        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof MailboxListener.Expunged).hasSize(1)
-            .extracting(event -> (MailboxListener.Expunged) event).extracting(MailboxListener.Expunged::getMailboxId)
+        assertThat(eventCollector.getEvents()).filteredOn(event -> event instanceof Expunged).hasSize(1)
+            .extracting(event -> (Expunged) event).extracting(Expunged::getMailboxId)
             .containsOnly(mailbox2.getMailboxId());
     }
 
@@ -449,7 +480,7 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         eventBus.register(eventCollector);
         messageIdManager.setFlags(newFlags, MessageManager.FlagsUpdateMode.ADD, messageId, ImmutableList.of(mailbox1.getMailboxId(), mailbox2.getMailboxId()), session);
 
-        assertThat(eventCollector.getEvents()).hasSize(2).allSatisfy(event -> assertThat(event).isInstanceOf(MailboxListener.FlagsUpdated.class));
+        assertThat(eventCollector.getEvents()).hasSize(2).allSatisfy(event -> assertThat(event).isInstanceOf(FlagsUpdated.class));
     }
 
     @Test
@@ -468,14 +499,15 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         ModSeq modSeq = messageResult.getModSeq();
         UpdatedFlags updatedFlags = UpdatedFlags.builder()
             .uid(messageUid)
+            .messageId(messageId)
             .modSeq(modSeq)
             .oldFlags(FLAGS)
             .newFlags(newFlags)
             .build();
 
-        assertThat(eventCollector.getEvents()).hasSize(1).first().isInstanceOf(MailboxListener.FlagsUpdated.class)
+        assertThat(eventCollector.getEvents()).hasSize(1).first().isInstanceOf(FlagsUpdated.class)
             .satisfies(e -> {
-                MailboxListener.FlagsUpdated event = (MailboxListener.FlagsUpdated) e;
+                FlagsUpdated event = (FlagsUpdated) e;
                 assertThat(event.getUpdatedFlags()).containsOnly(updatedFlags);
                 assertThat(event.getMailboxId()).isEqualTo(mailbox2.getMailboxId());
             });
@@ -498,7 +530,7 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         MessageId messageId = testingData.createNotUsedMessageId();
 
         eventBus.register(eventCollector);
-        messageIdManager.delete(ImmutableList.of(messageId), session);
+        messageIdManager.delete(messageId, session);
 
         assertThat(eventCollector.getEvents()).isEmpty();
     }
@@ -525,10 +557,10 @@ public abstract class AbstractMessageIdManagerSideEffectTest {
         assertThat(eventCollector.getEvents()).isEmpty();
     }
 
-    protected void givenUnlimitedQuota() throws MailboxException {
-        when(quotaManager.getMessageQuota(any(QuotaRoot.class))).thenReturn(
-            Quota.<QuotaCountLimit, QuotaCountUsage>builder().used(QuotaCountUsage.count(2)).computedLimit(QuotaCountLimit.unlimited()).build());
-        when(quotaManager.getStorageQuota(any(QuotaRoot.class))).thenReturn(
-            Quota.<QuotaSizeLimit, QuotaSizeUsage>builder().used(QuotaSizeUsage.size(2)).computedLimit(QuotaSizeLimit.unlimited()).build());
+    protected void givenUnlimitedQuota() {
+        when(quotaManager.getQuotasReactive(any(QuotaRoot.class)))
+            .thenReturn(Mono.just(new QuotaManager.Quotas(
+                Quota.<QuotaCountLimit, QuotaCountUsage>builder().used(QuotaCountUsage.count(2)).computedLimit(QuotaCountLimit.unlimited()).build(),
+                Quota.<QuotaSizeLimit, QuotaSizeUsage>builder().used(QuotaSizeUsage.size(2)).computedLimit(QuotaSizeLimit.unlimited()).build())));
     }
 }

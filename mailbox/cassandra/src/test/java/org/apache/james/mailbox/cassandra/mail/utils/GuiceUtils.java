@@ -19,6 +19,8 @@
 
 package org.apache.james.mailbox.cassandra.mail.utils;
 
+import java.util.Set;
+
 import org.apache.james.backends.cassandra.CassandraCluster;
 import org.apache.james.backends.cassandra.init.CassandraTypesProvider;
 import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
@@ -27,13 +29,31 @@ import org.apache.james.blob.api.BlobId;
 import org.apache.james.blob.api.BlobStore;
 import org.apache.james.blob.api.HashBlobId;
 import org.apache.james.blob.cassandra.CassandraBlobStoreFactory;
+import org.apache.james.eventsourcing.Event;
+import org.apache.james.eventsourcing.eventstore.EventStore;
+import org.apache.james.eventsourcing.eventstore.cassandra.CassandraEventStore;
+import org.apache.james.eventsourcing.eventstore.cassandra.EventNestedTypes;
+import org.apache.james.eventsourcing.eventstore.cassandra.dto.EventDTO;
+import org.apache.james.eventsourcing.eventstore.cassandra.dto.EventDTOModule;
+import org.apache.james.json.DTO;
+import org.apache.james.json.DTOModule;
 import org.apache.james.mailbox.cassandra.ids.CassandraMessageId;
+import org.apache.james.mailbox.cassandra.mail.ACLMapper;
+import org.apache.james.mailbox.cassandra.mail.CassandraACLMapper;
+import org.apache.james.mailbox.cassandra.mail.CassandraUidProvider;
+import org.apache.james.mailbox.cassandra.mail.eventsourcing.acl.ACLModule;
 import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.mailbox.store.mail.UidProvider;
+import org.apache.james.metrics.tests.RecordingMetricFactory;
 
 import com.datastax.driver.core.Session;
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Module;
+import com.google.inject.TypeLiteral;
+import com.google.inject.multibindings.Multibinder;
+import com.google.inject.name.Names;
 import com.google.inject.util.Modules;
 
 public class GuiceUtils {
@@ -58,9 +78,17 @@ public class GuiceUtils {
                                         CassandraConfiguration configuration) {
         return Modules.combine(
             binder -> binder.bind(MessageId.Factory.class).toInstance(messageIdFactory),
+            binder -> binder.bind(UidProvider.class).to(CassandraUidProvider.class),
+            binder -> binder.bind(ACLMapper.class).to(CassandraACLMapper.class),
             binder -> binder.bind(BlobId.Factory.class).toInstance(new HashBlobId.Factory()),
-            binder -> binder.bind(BlobStore.class).toProvider(() -> CassandraBlobStoreFactory.forTesting(session).passthrough()),
+            binder -> binder.bind(BlobStore.class).toProvider(() -> CassandraBlobStoreFactory.forTesting(session, new RecordingMetricFactory()).passthrough()),
             binder -> binder.bind(Session.class).toInstance(session),
+            binder -> Multibinder.newSetBinder(binder, new TypeLiteral<EventDTOModule<? extends Event, ? extends EventDTO>>() {})
+                .addBinding().toInstance(ACLModule.ACL_UPDATE),
+            binder -> binder.bind(new TypeLiteral<Set<DTOModule<?, ? extends DTO>>>() {}).annotatedWith(Names.named(EventNestedTypes.EVENT_NESTED_TYPES_INJECTION_NAME))
+                .toInstance(ImmutableSet.of()),
+            binder -> Multibinder.newSetBinder(binder, new TypeLiteral<EventDTOModule<? extends Event, ? extends EventDTO>>() {}),
+            binder -> binder.bind(EventStore.class).to(CassandraEventStore.class),
             binder -> binder.bind(CassandraTypesProvider.class).toInstance(typesProvider),
             binder -> binder.bind(CassandraConfiguration.class).toInstance(configuration),
             binder -> binder.bind(CassandraConsistenciesConfiguration.class)

@@ -33,27 +33,28 @@ import net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson
 import org.apache.http.HttpStatus
 import org.apache.james.core.{Domain, Username}
 import org.apache.james.dnsservice.api.DNSService
+import org.apache.james.domainlist.lib.DomainListConfiguration
 import org.apache.james.domainlist.memory.MemoryDomainList
 import org.apache.james.jmap.JMAPUrls.JMAP
-import org.apache.james.jmap._
-import org.apache.james.jmap.http.{Authenticator, BasicAuthenticationStrategy, MailboxesProvisioner, SessionSupplier, UserProvisioning}
+import org.apache.james.jmap.core.CapabilityIdentifier.{CapabilityIdentifier, JMAP_CORE}
+import org.apache.james.jmap.core.Invocation.MethodName
+import org.apache.james.jmap.core.ResponseObject.SESSION_STATE
+import org.apache.james.jmap.core.{DefaultCapabilities, JmapRfc8621Configuration, RequestLevelErrorType}
+import org.apache.james.jmap.http.{Authenticator, BasicAuthenticationStrategy, UserProvisioning}
 import org.apache.james.jmap.method.{CoreEchoMethod, Method}
-import org.apache.james.jmap.model.CapabilityIdentifier.CapabilityIdentifier
-import org.apache.james.jmap.model.DefaultCapabilities.CORE_CAPABILITY
-import org.apache.james.jmap.model.Invocation.MethodName
-import org.apache.james.jmap.model.{Capabilities, JmapRfc8621Configuration, RequestLevelErrorType}
 import org.apache.james.jmap.routes.JMAPApiRoutesTest._
+import org.apache.james.jmap.{JMAPConfiguration, JMAPRoutesHandler, JMAPServer, Version, VersionParser}
 import org.apache.james.mailbox.extension.PreDeletionHook
 import org.apache.james.mailbox.inmemory.{InMemoryMailboxManager, MemoryMailboxManagerProvider}
-import org.apache.james.mailbox.store.StoreSubscriptionManager
 import org.apache.james.metrics.tests.RecordingMetricFactory
 import org.apache.james.user.memory.MemoryUsersRepository
 import org.hamcrest.Matchers.equalTo
 import org.mockito.ArgumentMatchers.any
-import org.mockito.Mockito.{doThrow, mock, when}
+import org.mockito.Mockito.{doReturn, mock, when}
 import org.scalatest.BeforeAndAfter
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import reactor.core.scala.publisher.SFlux
 
 object JMAPApiRoutesTest {
   private val TEST_CONFIGURATION: JMAPConfiguration = JMAPConfiguration.builder().enable().randomPort().build()
@@ -64,6 +65,7 @@ object JMAPApiRoutesTest {
   private val empty_set: ImmutableSet[PreDeletionHook] = ImmutableSet.of()
   private val dnsService = mock(classOf[DNSService])
   private val domainList = new MemoryDomainList(dnsService)
+  domainList.configure(DomainListConfiguration.DEFAULT)
   domainList.addDomain(Domain.of("james.org"))
 
   private val usersRepository = MemoryUsersRepository.withoutVirtualHosting(domainList)
@@ -74,12 +76,9 @@ object JMAPApiRoutesTest {
   private val AUTHENTICATOR: Authenticator = Authenticator.of(new RecordingMetricFactory, authenticationStrategy)
 
   private val userProvisionner: UserProvisioning = new UserProvisioning(usersRepository, new RecordingMetricFactory)
-  private val subscriptionManager: StoreSubscriptionManager = new StoreSubscriptionManager(mailboxManager.getMapperFactory)
-  private val mailboxesProvisioner: MailboxesProvisioner = new MailboxesProvisioner(mailboxManager, subscriptionManager, new RecordingMetricFactory)
-  private val sessionSupplier: SessionSupplier = new SessionSupplier(JmapRfc8621Configuration(JmapRfc8621Configuration.LOCALHOST_URL_PREFIX))
   private val JMAP_METHODS: Set[Method] = Set(new CoreEchoMethod)
 
-  private val JMAP_API_ROUTE: JMAPApiRoutes = new JMAPApiRoutes(AUTHENTICATOR, userProvisionner, mailboxesProvisioner, JMAP_METHODS, sessionSupplier)
+  private val JMAP_API_ROUTE: JMAPApiRoutes = new JMAPApiRoutes(AUTHENTICATOR, userProvisionner, new JMAPApi(JMAP_METHODS, DefaultCapabilities.supported(JmapRfc8621Configuration("http://127.0.0.1", "ws://127.0.0.1")).capabilities.toSet))
   private val ROUTES_HANDLER: ImmutableSet[JMAPRoutesHandler] = ImmutableSet.of(new JMAPRoutesHandler(Version.RFC8621, JMAP_API_ROUTE))
 
   private val userBase64String: String = Base64.getEncoder.encodeToString("user1:password".getBytes(StandardCharsets.UTF_8))
@@ -151,8 +150,8 @@ object JMAPApiRoutesTest {
       |}""".stripMargin
 
   private val RESPONSE_OBJECT: String =
-    """{
-      |  "sessionState": "75128aab4b1b",
+    s"""{
+      |  "sessionState": "${SESSION_STATE.value}",
       |  "methodResponses": [
       |    [
       |      "Core/echo",
@@ -166,8 +165,8 @@ object JMAPApiRoutesTest {
       |}""".stripMargin
 
   private val SERVER_FAIL_RESPONSE_OBJECT: String =
-    """{
-      |  "sessionState": "75128aab4b1b",
+    s"""{
+      |  "sessionState": "${SESSION_STATE.value}",
       |  "methodResponses": [
       |    [
       |      "error",
@@ -189,8 +188,8 @@ object JMAPApiRoutesTest {
       |}""".stripMargin
 
   private val RESPONSE_OBJECT_WITH_UNSUPPORTED_METHOD: String =
-    """{
-      |  "sessionState": "75128aab4b1b",
+    s"""{
+      |  "sessionState": "${SESSION_STATE.value}",
       |  "methodResponses": [
       |    [
       |      "Core/echo",
@@ -255,7 +254,7 @@ class JMAPApiRoutesTest extends AnyFlatSpec with BeforeAndAfter with Matchers {
   var jmapServer: JMAPServer = _
 
   before {
-    val versionParser: VersionParser = new VersionParser(SUPPORTED_VERSIONS)
+    val versionParser: VersionParser = new VersionParser(SUPPORTED_VERSIONS, JMAPConfiguration.DEFAULT)
     jmapServer = new JMAPServer(TEST_CONFIGURATION, ROUTES_HANDLER, versionParser)
     jmapServer.start()
 
@@ -434,19 +433,19 @@ class JMAPApiRoutesTest extends AnyFlatSpec with BeforeAndAfter with Matchers {
   "RFC-8621 with random error when processing request " should "return 200, with serverFail error, others method call proceed normally" in {
     val mockCoreEchoMethod = mock(classOf[CoreEchoMethod])
 
-    doThrow(new RuntimeException("Unexpected Exception occur, the others method may proceed normally"))
+    doReturn(SFlux.error(new RuntimeException("Unexpected Exception occur, the others method may proceed normally")))
       .doCallRealMethod()
       .when(mockCoreEchoMethod)
       .process(any[Set[CapabilityIdentifier]], any(), any())
 
     when(mockCoreEchoMethod.methodName).thenReturn(MethodName("Core/echo"))
-    when(mockCoreEchoMethod.requiredCapabilities).thenReturn(Capabilities(CORE_CAPABILITY))
+    when(mockCoreEchoMethod.requiredCapabilities).thenReturn(Set(JMAP_CORE))
 
     val methods: Set[Method] = Set(mockCoreEchoMethod)
-    val apiRoute: JMAPApiRoutes = new JMAPApiRoutes(AUTHENTICATOR, userProvisionner, mailboxesProvisioner, methods, sessionSupplier)
+    val apiRoute: JMAPApiRoutes = new JMAPApiRoutes(AUTHENTICATOR, userProvisionner, new JMAPApi(methods, DefaultCapabilities.supported(JmapRfc8621Configuration("http://127.0.0.1", "ws://127.0.0.1")).capabilities.toSet))
     val routesHandler: ImmutableSet[JMAPRoutesHandler] = ImmutableSet.of(new JMAPRoutesHandler(Version.RFC8621, apiRoute))
 
-    val versionParser: VersionParser = new VersionParser(SUPPORTED_VERSIONS)
+    val versionParser: VersionParser = new VersionParser(SUPPORTED_VERSIONS, JMAPConfiguration.DEFAULT)
     jmapServer = new JMAPServer(TEST_CONFIGURATION, routesHandler, versionParser)
     jmapServer.start()
 

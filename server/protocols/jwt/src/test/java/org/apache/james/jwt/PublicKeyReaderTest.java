@@ -25,10 +25,10 @@ import java.security.Security;
 import java.util.Optional;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
-public class PublicKeyReaderTest {
+class PublicKeyReaderTest {
 
     private static final String PUBLIC_PEM_KEY = "-----BEGIN PUBLIC KEY-----\n" +
             "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtlChO/nlVP27MpdkG0Bh\n" +
@@ -40,23 +40,23 @@ public class PublicKeyReaderTest {
             "kwIDAQAB\n" +
             "-----END PUBLIC KEY-----";
 
-    @BeforeClass
-    public static void init() {
+    @BeforeAll
+    static void init() {
         Security.addProvider(new BouncyCastleProvider());
     }
 
     @Test
-    public void fromPEMShouldReturnEmptyWhenEmptyProvided() {
+    void fromPEMShouldReturnEmptyWhenEmptyProvided() {
         assertThat(new PublicKeyReader().fromPEM(Optional.empty())).isEmpty();
     }
 
     @Test
-    public void fromPEMShouldReturnEmptyWhenInvalidPEMKey() {
+    void fromPEMShouldReturnEmptyWhenInvalidPEMKey() {
         assertThat(new PublicKeyReader().fromPEM(Optional.of("blabla"))).isEmpty();
     }
 
     @Test
-    public void fromPEMShouldReturnRSAPublicKeyWhenValidPEMKey() {
+    void fromPEMShouldReturnRSAPublicKeyWhenValidPEMKey() {
         assertThat(new PublicKeyReader().fromPEM(Optional.of(PUBLIC_PEM_KEY))).isPresent();
     }
 }

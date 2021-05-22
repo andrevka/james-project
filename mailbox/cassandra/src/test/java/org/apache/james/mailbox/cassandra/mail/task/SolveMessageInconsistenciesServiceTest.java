@@ -31,7 +31,9 @@ import org.apache.james.backends.cassandra.CassandraCluster;
 import org.apache.james.backends.cassandra.CassandraClusterExtension;
 import org.apache.james.backends.cassandra.Scenario;
 import org.apache.james.backends.cassandra.components.CassandraModule;
+import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
 import org.apache.james.backends.cassandra.versions.CassandraSchemaVersionModule;
+import org.apache.james.junit.categories.Unstable;
 import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.ModSeq;
 import org.apache.james.mailbox.cassandra.ids.CassandraId;
@@ -47,6 +49,7 @@ import org.apache.james.task.Task;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -102,7 +105,8 @@ public class SolveMessageInconsistenciesServiceTest {
         imapUidDAO = new CassandraMessageIdToImapUidDAO(
             cassandra.getConf(),
             cassandraCluster.getCassandraConsistenciesConfiguration(),
-            new CassandraMessageId.Factory());
+            new CassandraMessageId.Factory(),
+            CassandraConfiguration.DEFAULT_CONFIGURATION);
         messageIdDAO = new CassandraMessageIdDAO(cassandra.getConf(), new CassandraMessageId.Factory());
         testee = new SolveMessageInconsistenciesService(imapUidDAO, messageIdDAO);
     }
@@ -638,7 +642,16 @@ public class SolveMessageInconsistenciesServiceTest {
                 .build());
     }
 
+    /*
+    Error
+    Cassandra timeout during SIMPLE write query at consistency QUORUM (1 replica were required but only 0 acknowledged the write)
+    Stacktrace
+    com.datastax.driver.core.exceptions.WriteTimeoutException: Cassandra timeout during SIMPLE write query at consistency QUORUM (1 replica were required but only 0 acknowledged the write)
+    Caused by: com.datastax.driver.core.exceptions.WriteTimeoutException: Cassandra timeout during SIMPLE write query at consistency QUORUM (1 replica were required but only 0 acknowledged the write)
+    https://builds.apache.org/blue/organizations/jenkins/james%2FApacheJames/detail/PR-268/39/tests
+    */
     @Test
+    @Tag(Unstable.TAG)
     void fixMailboxInconsistenciesShouldUpdateContextWhenDeleteError(CassandraCluster cassandra) {
         Context context = new Context();
 

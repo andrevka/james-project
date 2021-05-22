@@ -23,7 +23,6 @@ import java.io.InputStream;
 
 import javax.inject.Inject;
 import javax.mail.MessagingException;
-import javax.mail.internet.MimeMessage;
 
 import org.apache.james.jmap.draft.model.message.view.MessageFullViewFactory.MetaDataWithContent;
 import org.apache.james.jmap.draft.send.MailMetadata;
@@ -33,14 +32,37 @@ import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.server.core.Envelope;
 import org.apache.james.server.core.MailImpl;
-import org.apache.james.server.core.MimeMessageCopyOnWriteProxy;
-import org.apache.james.server.core.MimeMessageInputStreamSource;
 import org.apache.james.server.core.MimeMessageSource;
 import org.apache.mailet.Mail;
 
 import com.google.common.annotations.VisibleForTesting;
 
 public class MessageSender {
+    public static class MessageMimeMessageSource extends MimeMessageSource {
+        private final String id;
+        private final MetaDataWithContent message;
+
+        public MessageMimeMessageSource(String id, MetaDataWithContent message) {
+            this.id = id;
+            this.message = message;
+        }
+
+        @Override
+        public String getSourceId() {
+            return id;
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return message.getContent();
+        }
+
+        @Override
+        public long getMessageSize() {
+            return message.getSize();
+        }
+    }
+
     private final MailSpool mailSpool;
 
     @Inject
@@ -62,24 +84,13 @@ public class MessageSender {
     @VisibleForTesting
     static Mail buildMail(MetaDataWithContent message, Envelope envelope) throws MessagingException {
         String name = message.getMessageId().serialize();
-        return MailImpl.builder()
+        MailImpl mail = MailImpl.builder()
             .name(name)
             .sender(envelope.getFrom().asOptional().orElseThrow(() -> new RuntimeException("Sender is mandatory")))
             .addRecipients(envelope.getRecipients())
-            .mimeMessage(toMimeMessage(name, message.getContent()))
             .build();
-    }
-
-    private static MimeMessage toMimeMessage(String name, InputStream inputStream) throws MessagingException {
-        MimeMessageSource source = new MimeMessageInputStreamSource(name, inputStream);
-        // if MimeMessageCopyOnWriteProxy throws an error in the constructor we
-        // have to manually care disposing our source.
-        try {
-            return new MimeMessageCopyOnWriteProxy(source);
-        } catch (MessagingException e) {
-            LifecycleUtil.dispose(source);
-            throw e;
-        }
+        mail.setMessageContent(new MessageMimeMessageSource(name, message));
+        return mail;
     }
 
     public void sendMessage(MessageId messageId,

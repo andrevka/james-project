@@ -37,6 +37,7 @@ import static org.apache.james.jmap.JmapCommonRequests.listMessageIdsInMailbox;
 import static org.apache.james.jmap.JmapURIBuilder.baseUri;
 import static org.apache.james.transport.mailets.remote.delivery.HeloNameProvider.LOCALHOST;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Durations.TEN_SECONDS;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -90,7 +91,6 @@ import org.apache.james.util.ClassLoaderUtils;
 import org.apache.james.util.date.ImapDateTimeFormatter;
 import org.apache.james.utils.DataProbeImpl;
 import org.apache.james.utils.TestIMAPClient;
-import org.awaitility.Duration;
 import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Before;
@@ -257,7 +257,7 @@ public abstract class GetMessageListMethodTest {
             .body()
             .path(ARGUMENTS + ".created." + messageCreationId + ".id");
 
-        String searchedMessageId = calmlyAwait.atMost(Duration.TEN_SECONDS)
+        String searchedMessageId = calmlyAwait.atMost(TEN_SECONDS)
             .until(() -> searchFirstMessageByFromField(fromName), Matchers.notNullValue());
 
         assertThat(searchedMessageId)
@@ -1762,6 +1762,28 @@ public abstract class GetMessageListMethodTest {
         given()
             .header("Authorization", aliceAccessToken.asString())
             .body("[[\"getMessageList\", {\"sort\":[\"date desc\"]}, \"#0\"]]")
+        .when()
+            .post("/jmap")
+        .then()
+            .statusCode(200)
+            .body(NAME, equalTo("messageList"))
+            .body(ARGUMENTS + ".messageIds", contains(message1.getMessageId().serialize(), message2.getMessageId().serialize()));
+    }
+
+    @Test
+    public void getMessageListShouldSortMessagesWhenSortedByDateDescAndInMailbox() throws Exception {
+        MailboxId mailboxId = mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, ALICE.asString(), "mailbox");
+
+        LocalDate date = LocalDate.now();
+        ComposedMessageId message1 = mailboxProbe.appendMessage(ALICE.asString(), ALICE_MAILBOX,
+                new ByteArrayInputStream("Subject: test\r\n\r\ntestmail".getBytes()), convertToDate(date.plusDays(1)), false, new Flags());
+        ComposedMessageId message2 = mailboxProbe.appendMessage(ALICE.asString(), ALICE_MAILBOX,
+                new ByteArrayInputStream("Subject: test2\r\n\r\ntestmail".getBytes()), convertToDate(date), false, new Flags());
+        await();
+
+        given()
+            .header("Authorization", aliceAccessToken.asString())
+            .body("[[\"getMessageList\", {\"filter\":{\"inMailboxes\":[\"" + mailboxId.serialize() + "\"]}, \"sort\":[\"date desc\"]}, \"#0\"]]")
         .when()
             .post("/jmap")
         .then()

@@ -18,8 +18,6 @@
  ****************************************************************/
 package org.apache.james.jmap.http;
 
-import static org.apache.james.metrics.api.TimeMetric.ExecutionResult.DEFAULT_100_MS_THRESHOLD;
-
 import java.util.UUID;
 
 import javax.inject.Inject;
@@ -35,6 +33,7 @@ import org.apache.james.user.api.UsersRepositoryException;
 import com.google.common.annotations.VisibleForTesting;
 
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 public class UserProvisioner {
     private final UsersRepository usersRepository;
@@ -49,7 +48,9 @@ public class UserProvisioner {
 
     public Mono<Void> provisionUser(MailboxSession session) {
         if (session != null && !usersRepository.isReadOnly()) {
-            return Mono.fromRunnable(() -> createAccountIfNeeded(session));
+            return Mono.fromRunnable(() -> createAccountIfNeeded(session))
+                .subscribeOn(Schedulers.elastic())
+                .then();
         }
         return Mono.empty();
     }
@@ -66,7 +67,7 @@ public class UserProvisioner {
         } catch (UsersRepositoryException e) {
             throw new RuntimeException(e);
         } finally {
-            timeMetric.stopAndPublish().logWhenExceedP99(DEFAULT_100_MS_THRESHOLD);
+            timeMetric.stopAndPublish();
         }
     }
 

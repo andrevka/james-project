@@ -39,13 +39,18 @@ import javax.mail.internet.InternetHeaders;
 import javax.mail.internet.MimeMessage;
 import javax.mail.util.SharedByteArrayInputStream;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.james.lifecycle.api.Disposable;
 import org.apache.james.lifecycle.api.LifecycleUtil;
+
+import com.google.common.io.CountingInputStream;
 
 /**
  * This object wraps a MimeMessage, only loading the underlying MimeMessage
  * object when needed. Also tracks if changes were made to reduce unnecessary
  * saves.
+ *
+ * This class is not thread safe.
  */
 public class MimeMessageWrapper extends MimeMessage implements Disposable {
 
@@ -54,6 +59,8 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * or via a temporary file. Default is the file
      */
     public static final String USE_MEMORY_COPY = "james.message.usememorycopy";
+    private static final int UNKNOWN = -1;
+    private static final int HEADER_BODY_SEPARATOR_SIZE = 2;
 
     /**
      * Can provide an input stream to the data
@@ -178,7 +185,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * 
      * @see MimeMessageSource
      */
-    public synchronized String getSourceId() {
+    public String getSourceId() {
         return source != null ? source.getSourceId() : null;
     }
 
@@ -188,7 +195,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * @throws MessagingException
      *             if an error is encountered while loading the headers
      */
-    protected synchronized void loadHeaders() throws MessagingException {
+    protected void loadHeaders() throws MessagingException {
         if (headers != null) {
             // Another thread has already loaded these headers
         } else if (source != null) {
@@ -208,7 +215,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * @throws MessagingException
      *             if an error is encountered while loading the message
      */
-    public synchronized void loadMessage() throws MessagingException {
+    public void loadMessage() throws MessagingException {
         if (messageParsed) {
             // Another thread has already loaded this message
         } else if (source != null) {
@@ -239,7 +246,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * 
      * @return whether the message has been modified
      */
-    public synchronized boolean isModified() {
+    public boolean isModified() {
         return headersModified || bodyModified || modified;
     }
 
@@ -248,7 +255,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * 
      * @return bodyModified
      */
-    public synchronized boolean isBodyModified() {
+    public boolean isBodyModified() {
         return bodyModified;
     }
 
@@ -257,7 +264,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * 
      * @return headersModified
      */
-    public synchronized boolean isHeaderModified() {
+    public boolean isHeaderModified() {
         return headersModified;
     }
 
@@ -289,7 +296,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
         writeTo(headerOs, bodyOs, ignoreList, false);
     }
 
-    public synchronized void writeTo(OutputStream headerOs, OutputStream bodyOs, String[] ignoreList, boolean preLoad) throws IOException, MessagingException {
+    public void writeTo(OutputStream headerOs, OutputStream bodyOs, String[] ignoreList, boolean preLoad) throws IOException, MessagingException {
         
         if (!preLoad && source != null && !isBodyModified()) {
             // We do not want to instantiate the message... just read from
@@ -344,27 +351,22 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * never change on {@link #saveChanges()}
      */
     @Override
-    public synchronized int getSize() throws MessagingException {
-        if (source != null) {
+    public int getSize() throws MessagingException {
+        if (source != null && !bodyModified) {
             try {
                 long fullSize = source.getMessageSize();
                 if (headers == null) {
                     loadHeaders();
                 }
                 // 2 == CRLF
-                return (int) (fullSize - initialHeaderSize - 2);
+                return Math.max(0, (int) (fullSize - initialHeaderSize - HEADER_BODY_SEPARATOR_SIZE));
 
             } catch (IOException e) {
                 throw new MessagingException("Unable to calculate message size");
             }
         } else {
-            if (!messageParsed) {
-                loadMessage();
-            }
-
-            return super.getSize();
+            return UNKNOWN;
         }
-
     }
 
     /**
@@ -377,10 +379,10 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
         try {
             in = getContentStream();
         } catch (Exception e) {
-            return -1;
+            return UNKNOWN;
         }
         if (in == null) {
-            return -1;
+            return UNKNOWN;
         }
         // Wrap input stream in LineNumberReader
         // Not sure what encoding to use really...
@@ -389,13 +391,13 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
             // Read through all the data
             char[] block = new char[4096];
             try (LineNumberReader counter = new LineNumberReader(isr)) {
-                while (counter.read(block) > -1) {
+                while (counter.read(block) > UNKNOWN) {
                     // Just keep reading
                 }
                 return counter.getLineNumber();
             }
         } catch (IOException ioe) {
-            return -1;
+            return UNKNOWN;
         }
     }
 
@@ -415,6 +417,15 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
                 return source.getMessageSize();
             } catch (IOException ioe) {
                 throw new MessagingException("Error retrieving message size", ioe);
+            }
+        } else if (source != null && !bodyModified) {
+            try (InputStream in = source.getInputStream()) {
+                CountingInputStream countingInputStream = new CountingInputStream(in);
+                new MailHeaders(countingInputStream);
+                long previousHeaderLength = countingInputStream.getCount();
+                return source.getMessageSize() - previousHeaderLength + IOUtils.consume(new InternetHeadersInputStream(getAllHeaderLines()));
+            } catch (IOException e) {
+                throw new MessagingException("Error retrieving message size", e);
             }
         } else {
             return MimeMessageUtil.calculateMessageSize(this);
@@ -490,7 +501,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
         return headers.getNonMatchingHeaderLines(names);
     }
 
-    private synchronized void checkModifyHeaders() throws MessagingException {
+    private void checkModifyHeaders() throws MessagingException {
         // Disable only-header loading optimizations for JAMES-559
         /*
          * if (!messageParsed) { loadMessage(); }
@@ -534,7 +545,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * content. Every method that alter the content will fallback to this one.
      */
     @Override
-    public synchronized void setDataHandler(DataHandler arg0) throws MessagingException {
+    public void setDataHandler(DataHandler arg0) throws MessagingException {
         modified = true;
         saved = false;
         bodyModified = true;
@@ -556,7 +567,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
     }
 
     @Override
-    protected synchronized void parse(InputStream is) throws MessagingException {
+    protected void parse(InputStream is) throws MessagingException {
         // the super implementation calls
         // headers = createInternetHeaders(is);
         super.parse(is);
@@ -568,7 +579,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * Otherwise we parse
      */
     @Override
-    protected synchronized InternetHeaders createInternetHeaders(InputStream is) throws MessagingException {
+    protected InternetHeaders createInternetHeaders(InputStream is) throws MessagingException {
         /*
          * This code is no more needed: see JAMES-570 and new tests
          * 
@@ -616,7 +627,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
     }
 
     @Override
-    public synchronized InputStream getRawInputStream() throws MessagingException {
+    public InputStream getRawInputStream() throws MessagingException {
         if (!messageParsed && !isModified() && source != null) {
             InputStream is;
             try {
@@ -642,7 +653,7 @@ public class MimeMessageWrapper extends MimeMessage implements Disposable {
      * @throws MessagingException
      */
 
-    public synchronized InputStream getMessageInputStream() throws MessagingException {
+    public InputStream getMessageInputStream() throws MessagingException {
         if (!messageParsed && !isModified() && source != null) {
             try {
                 return source.getInputStream();

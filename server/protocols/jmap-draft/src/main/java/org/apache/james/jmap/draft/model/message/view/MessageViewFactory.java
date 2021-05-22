@@ -19,6 +19,8 @@
 
 package org.apache.james.jmap.draft.model.message.view;
 
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
@@ -27,6 +29,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -37,14 +40,16 @@ import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.model.MessageResult;
+import org.apache.james.mime4j.codec.DecodeMonitor;
+import org.apache.james.mime4j.codec.DecoderUtil;
 import org.apache.james.mime4j.dom.Message;
 import org.apache.james.mime4j.stream.Field;
 import org.apache.james.mime4j.stream.MimeConfig;
-import org.apache.james.mime4j.util.MimeUtil;
 import org.apache.james.util.ReactorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.fge.lambdas.Throwing;
 import com.github.steveash.guavate.Guavate;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -81,11 +86,10 @@ public interface MessageViewFactory<T extends MessageView> {
                 .count() == 1;
         }
 
-        static List<MailboxId> getMailboxIds(Collection<MessageResult> messageResults) {
+        static Set<MailboxId> getMailboxIds(Collection<MessageResult> messageResults) {
             return messageResults.stream()
                 .map(MessageResult::getMailboxId)
-                .distinct()
-                .collect(Guavate.toImmutableList());
+                .collect(Guavate.toImmutableSet());
         }
 
         static Keywords getKeywords(Collection<MessageResult> messageResults) {
@@ -108,9 +112,7 @@ public interface MessageViewFactory<T extends MessageView> {
             Function<Map.Entry<String, Collection<Field>>, String> bodyConcatenator = fieldListEntry -> fieldListEntry.getValue()
                 .stream()
                 .map(Field::getBody)
-                .map(MimeUtil::unscrambleHeaderValue)
-                .collect(Collectors.toList())
-                .stream()
+                .map(body -> DecoderUtil.decodeEncodedWords(body, DecodeMonitor.SILENT))
                 .collect(Collectors.joining(JMAP_MULTIVALUED_FIELD_DELIMITER));
 
             return Multimaps.index(fields, Field::getName)
@@ -132,15 +134,21 @@ public interface MessageViewFactory<T extends MessageView> {
         static <T extends MessageView> Flux<T> toMessageViews(Flux<MessageResult> messageResults, FromMessageResult<T> converter) {
             return messageResults
                 .groupBy(MessageResult::getMessageId)
-                .flatMap(Flux::collectList)
+                .flatMap(Flux::collectList, DEFAULT_CONCURRENCY)
                 .filter(Predicate.not(List::isEmpty))
-                .flatMap(toMessageViews(converter));
+                .flatMap(toMessageViews(converter), DEFAULT_CONCURRENCY);
         }
 
         static Instant getDateFromHeaderOrInternalDateOtherwise(Message mimeMessage, MessageResult message) {
             return Optional.ofNullable(mimeMessage.getDate())
                 .map(Date::toInstant)
                 .orElse(message.getInternalDate().toInstant());
+        }
+
+        static Message retrieveMessage(MessageFullViewFactory.MetaDataWithContent metaDataWithContent) {
+            return metaDataWithContent.getMessage()
+                .orElseGet(Throwing.supplier(() ->
+                    parse(metaDataWithContent.getContent())).sneakyThrow());
         }
 
         static Message parse(InputStream messageContent) throws IOException {

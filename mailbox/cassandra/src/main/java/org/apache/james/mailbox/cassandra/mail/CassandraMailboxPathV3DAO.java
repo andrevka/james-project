@@ -35,6 +35,7 @@ import static org.apache.james.mailbox.cassandra.table.CassandraMailboxPathV3Tab
 import javax.inject.Inject;
 
 import org.apache.james.backends.cassandra.init.configuration.CassandraConsistenciesConfiguration;
+import org.apache.james.backends.cassandra.init.configuration.CassandraConsistenciesConfiguration.ConsistencyChoice;
 import org.apache.james.backends.cassandra.utils.CassandraAsyncExecutor;
 import org.apache.james.backends.cassandra.utils.CassandraUtils;
 import org.apache.james.core.Username;
@@ -63,13 +64,13 @@ public class CassandraMailboxPathV3DAO {
     private final PreparedStatement select;
     private final PreparedStatement selectUser;
     private final PreparedStatement selectAll;
-    private final ConsistencyLevel consistencyLevel;
+    private final CassandraConsistenciesConfiguration consistenciesConfiguration;
 
     @Inject
     public CassandraMailboxPathV3DAO(Session session, CassandraUtils cassandraUtils,
                                      CassandraConsistenciesConfiguration consistenciesConfiguration) {
         this.cassandraAsyncExecutor = new CassandraAsyncExecutor(session);
-        this.consistencyLevel = consistenciesConfiguration.getLightweightTransaction();
+        this.consistenciesConfiguration = consistenciesConfiguration;
         this.cassandraUtils = cassandraUtils;
         this.insert = prepareInsert(session);
         this.delete = prepareDelete(session);
@@ -118,6 +119,14 @@ public class CassandraMailboxPathV3DAO {
     }
 
     public Mono<Mailbox> retrieve(MailboxPath mailboxPath) {
+        return retrieve(mailboxPath, consistenciesConfiguration.getLightweightTransaction());
+    }
+
+    public Mono<Mailbox> retrieve(MailboxPath mailboxPath, ConsistencyChoice consistencyChoice) {
+        return retrieve(mailboxPath, consistencyChoice.choose(consistenciesConfiguration));
+    }
+
+    private Mono<Mailbox> retrieve(MailboxPath mailboxPath, ConsistencyLevel consistencyLevel) {
         return cassandraAsyncExecutor.executeSingleRow(
             select.bind()
                 .setString(NAMESPACE, mailboxPath.getNamespace())
@@ -129,12 +138,12 @@ public class CassandraMailboxPathV3DAO {
             .switchIfEmpty(ReactorUtils.executeAndEmpty(() -> logGhostMailboxFailure(mailboxPath)));
     }
 
-    public Flux<Mailbox> listUserMailboxes(String namespace, Username user) {
+    public Flux<Mailbox> listUserMailboxes(String namespace, Username user, ConsistencyChoice consistencyChoice) {
         return cassandraAsyncExecutor.execute(
             selectUser.bind()
                 .setString(NAMESPACE, namespace)
                 .setString(USER, sanitizeUser(user))
-                .setConsistencyLevel(consistencyLevel))
+                .setConsistencyLevel(consistencyChoice.choose(consistenciesConfiguration)))
             .flatMapMany(cassandraUtils::convertToFlux)
             .map(this::fromRowToCassandraIdAndPath)
             .map(FunctionalUtils.toFunction(this::logReadSuccess));

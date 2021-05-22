@@ -22,6 +22,7 @@ package org.apache.james.webadmin.routes;
 import static io.restassured.RestAssured.given;
 import static io.restassured.RestAssured.when;
 import static io.restassured.RestAssured.with;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static net.javacrumbs.jsonunit.core.Option.IGNORING_ARRAY_ORDER;
 import static net.javacrumbs.jsonunit.core.Option.IGNORING_EXTRA_FIELDS;
@@ -68,6 +69,7 @@ import org.apache.james.queue.memory.MemoryMailQueueFactory;
 import org.apache.james.task.Hostname;
 import org.apache.james.task.MemoryTaskManager;
 import org.apache.james.util.ClassLoaderUtils;
+import org.apache.james.util.MimeMessageUtil;
 import org.apache.james.webadmin.Constants;
 import org.apache.james.webadmin.WebAdminServer;
 import org.apache.james.webadmin.WebAdminUtils;
@@ -86,9 +88,9 @@ import org.apache.mailet.Mail;
 import org.apache.mailet.PerRecipientHeaders.Header;
 import org.apache.mailet.base.test.FakeMail;
 import org.eclipse.jetty.http.HttpStatus;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import com.google.common.collect.ImmutableList;
 
@@ -97,7 +99,7 @@ import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.http.ContentType;
 import io.restassured.parsing.Parser;
 
-public class MailRepositoriesRoutesTest {
+class MailRepositoriesRoutesTest {
 
     private static final MailRepositoryUrl URL_MY_REPO = MailRepositoryUrl.from("memory://myRepo");
     private static final MailRepositoryUrl URL_MY_REPO_OTHER = MailRepositoryUrl.from("other://myRepo");
@@ -107,13 +109,14 @@ public class MailRepositoriesRoutesTest {
     private static final MailQueueName CUSTOM_QUEUE = MailQueueName.of("customQueue");
     private static final String NAME_1 = "name1";
     private static final String NAME_2 = "name2";
+    private static final byte[] MESSAGE_BYTES = "header: value \r\n".getBytes(UTF_8);
     private WebAdminServer webAdminServer;
     private MemoryMailRepositoryStore mailRepositoryStore;
     private ManageableMailQueue spoolQueue;
     private ManageableMailQueue customQueue;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp() throws Exception {
         createMailRepositoryStore();
 
         MemoryTaskManager taskManager = new MemoryTaskManager(new Hostname("foo"));
@@ -141,13 +144,13 @@ public class MailRepositoriesRoutesTest {
         RestAssured.enableLoggingOfRequestAndResponseIfValidationFails();
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         webAdminServer.destroy();
     }
 
     @Test
-    public void putMailRepositoryShouldReturnOkWhenRepositoryIsCreated() {
+    void putMailRepositoryShouldReturnOkWhenRepositoryIsCreated() {
         given()
             .params("protocol", "memory")
         .when()
@@ -161,7 +164,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void putMailRepositoryShouldReturnOkWhenRepositoryAlreadyExists() {
+    void putMailRepositoryShouldReturnOkWhenRepositoryAlreadyExists() {
         given()
             .params("protocol", "memory")
         .when()
@@ -185,7 +188,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void putMailRepositoryShouldReturnInvalidArgumentWhenProtocolIsUnsupported() {
+    void putMailRepositoryShouldReturnInvalidArgumentWhenProtocolIsUnsupported() {
         given()
             .params("protocol", "unsupported")
         .when()
@@ -201,7 +204,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void getMailRepositoriesShouldReturnEmptyWhenEmpty() {
+    void getMailRepositoriesShouldReturnEmptyWhenEmpty() {
         List<Object> mailRepositories =
             when()
                 .get()
@@ -217,7 +220,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void getMailRepositoriesShouldReturnRepositoryWhenOne() throws Exception {
+    void getMailRepositoriesShouldReturnRepositoryWhenOne() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         when()
@@ -230,7 +233,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void getMailRepositoriesShouldDeduplicateAccordingToPath() throws Exception {
+    void getMailRepositoriesShouldDeduplicateAccordingToPath() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
         mailRepositoryStore.create(URL_MY_REPO_OTHER);
 
@@ -244,7 +247,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void getMailRepositoriesShouldReturnTwoRepositoriesWhenTwo() throws Exception {
+    void getMailRepositoriesShouldReturnTwoRepositoriesWhenTwo() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
         mailRepositoryStore.create(MailRepositoryUrl.from("memory://mySecondRepo"));
 
@@ -264,7 +267,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnNotFoundWhenNoRepository() {
+    void listingKeysShouldReturnNotFoundWhenNoRepository() {
         when()
             .get(MY_REPO_MAILS)
         .then()
@@ -273,7 +276,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnEmptyWhenNoMail() throws Exception {
+    void listingKeysShouldReturnEmptyWhenNoMail() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         when()
@@ -284,7 +287,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnContainedKeys() throws Exception {
+    void listingKeysShouldReturnContainedKeys() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -303,7 +306,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldMergeRepositoryContentWhenSamePath() throws Exception {
+    void listingKeysShouldMergeRepositoryContentWhenSamePath() throws Exception {
         MailRepository mailRepository1 = mailRepositoryStore.create(URL_MY_REPO);
         MailRepository mailRepository2 = mailRepositoryStore.create(URL_MY_REPO_OTHER);
 
@@ -323,7 +326,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldApplyLimitAndOffset() throws Exception {
+    void listingKeysShouldApplyLimitAndOffset() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -348,7 +351,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldApplyLimitWhenSeveralRepositories() throws Exception {
+    void listingKeysShouldApplyLimitWhenSeveralRepositories() throws Exception {
         MailRepository mailRepository1 = mailRepositoryStore.create(URL_MY_REPO);
         MailRepository mailRepository2 = mailRepositoryStore.create(URL_MY_REPO_OTHER);
 
@@ -372,7 +375,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnErrorOnInvalidOffset() {
+    void listingKeysShouldReturnErrorOnInvalidOffset() {
         given()
             .param("offset", "invalid")
         .when()
@@ -385,7 +388,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnErrorOnNegativeOffset() {
+    void listingKeysShouldReturnErrorOnNegativeOffset() {
         given()
             .param("offset", "-1")
         .when()
@@ -398,7 +401,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnEmptyWhenOffsetExceedsSize() throws Exception {
+    void listingKeysShouldReturnEmptyWhenOffsetExceedsSize() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -421,7 +424,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void offsetShouldBeAplliedOnTheMergedViewOfMailRepositories() throws Exception {
+    void offsetShouldBeAplliedOnTheMergedViewOfMailRepositories() throws Exception {
         MailRepository mailRepository1 = mailRepositoryStore.create(URL_MY_REPO);
         MailRepository mailRepository2 = mailRepositoryStore.create(URL_MY_REPO_OTHER);
 
@@ -448,7 +451,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnErrorOnInvalidLimit() {
+    void listingKeysShouldReturnErrorOnInvalidLimit() {
         given()
             .param("limit", "invalid")
         .when()
@@ -461,7 +464,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldReturnErrorOnNegativeLimit() {
+    void listingKeysShouldReturnErrorOnNegativeLimit() {
         given()
             .param("limit", "-1")
         .when()
@@ -474,7 +477,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void listingKeysShouldIgnoreZeroedOffset() throws Exception {
+    void listingKeysShouldIgnoreZeroedOffset() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -495,7 +498,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void zeroLimitShouldNotBeValid() {
+    void zeroLimitShouldNotBeValid() {
         given()
             .param("limit", "0")
         .when()
@@ -508,7 +511,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingRepositoryShouldReturnNotFoundWhenNone() {
+    void retrievingRepositoryShouldReturnNotFoundWhenNone() {
         given()
             .get(PATH_ESCAPED_MY_REPO)
         .then()
@@ -516,7 +519,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingRepositoryShouldReturnBasicInformation() throws Exception {
+    void retrievingRepositoryShouldReturnBasicInformation() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         given()
@@ -529,7 +532,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingRepositorySizeShouldReturnZeroWhenEmpty() throws Exception {
+    void retrievingRepositorySizeShouldReturnZeroWhenEmpty() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         given()
@@ -541,7 +544,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingRepositorySizeShouldReturnNumberOfContainedMails() throws Exception {
+    void retrievingRepositorySizeShouldReturnNumberOfContainedMails() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -557,7 +560,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingRepositorySizeShouldReturnNumberOfContainedMailsWhenSeveralRepositoryWithSamePath() throws Exception {
+    void retrievingRepositorySizeShouldReturnNumberOfContainedMailsWhenSeveralRepositoryWithSamePath() throws Exception {
         MailRepository mailRepository1 = mailRepositoryStore.create(URL_MY_REPO);
         MailRepository mailRepository2 = mailRepositoryStore.create(URL_MY_REPO_OTHER);
 
@@ -578,7 +581,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldDisplayItsInformation() throws Exception {
+    void retrievingAMailShouldDisplayItsInformation() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         String name = NAME_1;
@@ -617,7 +620,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldDisplayAllAdditionalFieldsWhenRequested() throws Exception {
+    void retrievingAMailShouldDisplayAllAdditionalFieldsWhenRequested() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name = NAME_1;
 
@@ -720,7 +723,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldDisplayAllValidAdditionalFieldsWhenRequested() throws Exception {
+    void retrievingAMailShouldDisplayAllValidAdditionalFieldsWhenRequested() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         String name = NAME_1;
@@ -751,7 +754,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldDisplayCorrectlyEncodedHeadersInValidAdditionalFieldsWhenRequested() throws Exception {
+    void retrievingAMailShouldDisplayCorrectlyEncodedHeadersInValidAdditionalFieldsWhenRequested() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name = NAME_1;
         String sender = "sender@domain";
@@ -779,7 +782,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldDisplayAllValidAdditionalFieldsEvenTheDuplicatedOnesWhenRequested() throws Exception {
+    void retrievingAMailShouldDisplayAllValidAdditionalFieldsEvenTheDuplicatedOnesWhenRequested() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name = NAME_1;
         String sender = "sender@domain";
@@ -809,7 +812,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldFailWhenAnUnknownFieldIsRequested() throws Exception {
+    void retrievingAMailShouldFailWhenAnUnknownFieldIsRequested() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name = NAME_1;
         String sender = "sender@domain";
@@ -834,7 +837,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldNotFailWhenOnlyNameProperty() throws Exception {
+    void retrievingAMailShouldNotFailWhenOnlyNameProperty() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -853,7 +856,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void retrievingAMailShouldFailWhenUnknown() throws Exception {
+    void retrievingAMailShouldFailWhenUnknown() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         String name = "name";
@@ -867,7 +870,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void downloadingAMailShouldReturnTheEml() throws Exception {
+    void downloadingAMailShouldReturnTheEml() throws Exception {
         RestAssured.requestSpecification = new RequestSpecBuilder().setPort(webAdminServer.getPort().getValue())
                 .setBasePath(MailRepositoriesRoutes.MAIL_REPOSITORIES)
                 .build();
@@ -900,7 +903,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void downloadingAMailShouldFailWhenUnknown() throws Exception {
+    void downloadingAMailShouldFailWhenUnknown() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         RestAssured.requestSpecification = new RequestSpecBuilder().setPort(webAdminServer.getPort().getValue())
@@ -921,7 +924,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void deletingAMailShouldRemoveIt() throws Exception {
+    void deletingAMailShouldRemoveIt() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -943,7 +946,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void deletingAMailShouldReturnOkWhenExist() throws Exception {
+    void deletingAMailShouldReturnOkWhenExist() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -957,7 +960,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void deletingAMailShouldReturnOkWhenNotExist() throws Exception {
+    void deletingAMailShouldReturnOkWhenNotExist() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         when()
@@ -967,7 +970,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void deletingAllMailsShouldCreateATask() throws Exception {
+    void deletingAllMailsShouldCreateATask() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         when()
@@ -979,7 +982,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void clearTaskShouldHaveDetails() throws Exception {
+    void clearTaskShouldHaveDetails() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -1011,7 +1014,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void clearTaskShouldRemoveAllTheMailsFromTheMailRepository() throws Exception {
+    void clearTaskShouldRemoveAllTheMailsFromTheMailRepository() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
 
         mailRepository.store(FakeMail.builder()
@@ -1038,7 +1041,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void patchShouldReturnNotFoundWhenNoMailRepository() {
+    void patchShouldReturnNotFoundWhenNoMailRepository() {
         when()
             .delete(PATH_ESCAPED_MY_REPO + "/mails")
         .then()
@@ -1049,7 +1052,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void deleteShouldReturnNotFoundWhenNoMailRepository() {
+    void deleteShouldReturnNotFoundWhenNoMailRepository() {
         when()
             .delete(PATH_ESCAPED_MY_REPO + "/mails/any")
         .then()
@@ -1060,7 +1063,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldCreateATask() throws Exception {
+    void reprocessingAllTaskShouldCreateATask() throws Exception {
         mailRepositoryStore.create(URL_MY_REPO);
 
         given()
@@ -1074,7 +1077,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldRejectInvalidActions() {
+    void reprocessingAllTaskShouldRejectInvalidActions() {
         given()
             .param("action", "invalid")
         .when()
@@ -1088,7 +1091,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldRequireAction() {
+    void reprocessingAllTaskShouldRequireAction() {
         when()
             .patch(PATH_ESCAPED_MY_REPO + "/mails")
         .then()
@@ -1100,13 +1103,15 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldIncludeDetailsWhenDefaultValues() throws Exception {
+    void reprocessingAllTaskShouldIncludeDetailsWhenDefaultValues() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1134,15 +1139,17 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldIncludeDetails() throws Exception {
+    void reprocessingAllTaskShouldIncludeDetails() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1173,16 +1180,18 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldNotFailWhenSeveralRepositoriesWithSamePath() throws Exception {
+    void reprocessingAllTaskShouldNotFailWhenSeveralRepositoriesWithSamePath() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepositoryStore.create(URL_MY_REPO_OTHER);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1203,15 +1212,17 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldClearMailRepository() throws Exception {
+    void reprocessingAllTaskShouldClearMailRepository() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1233,16 +1244,18 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldClearBothMailRepositoriesWhenSamePath() throws Exception {
+    void reprocessingAllTaskShouldClearBothMailRepositoriesWhenSamePath() throws Exception {
         MailRepository mailRepository1 = mailRepositoryStore.create(URL_MY_REPO);
         MailRepository mailRepository2 = mailRepositoryStore.create(URL_MY_REPO_OTHER);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository1.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository2.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1265,13 +1278,15 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldEnqueueMailsOnDefaultQueue() throws Exception {
+    void reprocessingAllTaskShouldEnqueueMailsOnDefaultQueue() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1292,14 +1307,16 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldEnqueueMailsOfBothRepositoriesOnDefaultQueueWhenSamePath() throws Exception {
+    void reprocessingAllTaskShouldEnqueueMailsOfBothRepositoriesOnDefaultQueueWhenSamePath() throws Exception {
         MailRepository mailRepository1 = mailRepositoryStore.create(URL_MY_REPO);
         MailRepository mailRepository2 = mailRepositoryStore.create(URL_MY_REPO_OTHER);
         mailRepository1.store(FakeMail.builder()
             .name(NAME_1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository2.store(FakeMail.builder()
             .name(NAME_2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1320,17 +1337,19 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldPreserveStateWhenProcessorIsNotSpecified() throws Exception {
+    void reprocessingAllTaskShouldPreserveStateWhenProcessorIsNotSpecified() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String state1 = "state1";
         String state2 = "state2";
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
             .state(state1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
             .state(state2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1351,17 +1370,19 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldOverWriteStateWhenProcessorSpecified() throws Exception {
+    void reprocessingAllTaskShouldOverWriteStateWhenProcessorSpecified() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String state1 = "state1";
         String state2 = "state2";
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
             .state(state1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
             .state(state2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1384,13 +1405,15 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingAllTaskShouldEnqueueMailsOnSpecifiedQueue() throws Exception {
+    void reprocessingAllTaskShouldEnqueueMailsOnSpecifiedQueue() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1412,7 +1435,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldCreateATask() throws Exception {
+    void reprocessingOneTaskShouldCreateATask() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
@@ -1429,7 +1452,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldRejectInvalidActions() throws Exception {
+    void reprocessingOneTaskShouldRejectInvalidActions() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
@@ -1448,7 +1471,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldRequireAction() throws Exception {
+    void reprocessingOneTaskShouldRequireAction() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
@@ -1465,15 +1488,17 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldIncludeDetailsWhenDefaultValues() throws Exception {
+    void reprocessingOneTaskShouldIncludeDetailsWhenDefaultValues() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1500,15 +1525,17 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldIncludeDetails() throws Exception {
+    void reprocessingOneTaskShouldIncludeDetails() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1538,16 +1565,18 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldNotFailWhenSeveralRepositoryWithSamePath() throws Exception {
+    void reprocessingOneTaskShouldNotFailWhenSeveralRepositoryWithSamePath() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepositoryStore.create(URL_MY_REPO_OTHER);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1568,15 +1597,17 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldRemoveMailFromRepository() throws Exception {
+    void reprocessingOneTaskShouldRemoveMailFromRepository() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String name1 = "name1";
         String name2 = "name2";
         mailRepository.store(FakeMail.builder()
             .name(name1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(name2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1598,13 +1629,15 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldEnqueueMailsOnDefaultQueue() throws Exception {
+    void reprocessingOneTaskShouldEnqueueMailsOnDefaultQueue() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1625,17 +1658,19 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldPreserveStateWhenProcessorIsNotSpecified() throws Exception {
+    void reprocessingOneTaskShouldPreserveStateWhenProcessorIsNotSpecified() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String state1 = "state1";
         String state2 = "state2";
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
             .state(state1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
             .state(state2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1656,17 +1691,19 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldOverWriteStateWhenProcessorSpecified() throws Exception {
+    void reprocessingOneTaskShouldOverWriteStateWhenProcessorSpecified() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         String state1 = "state1";
         String state2 = "state2";
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
             .state(state1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
             .state(state2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String transport = "transport";
@@ -1689,13 +1726,15 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldEnqueueMailsOnSpecifiedQueue() throws Exception {
+    void reprocessingOneTaskShouldEnqueueMailsOnSpecifiedQueue() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
         mailRepository.store(FakeMail.builder()
             .name(NAME_2)
+            .mimeMessage(MimeMessageUtil.mimeMessageFromBytes(MESSAGE_BYTES))
             .build());
 
         String taskId = with()
@@ -1717,7 +1756,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldNotEnqueueUnknownMailKey() throws Exception {
+    void reprocessingOneTaskShouldNotEnqueueUnknownMailKey() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
@@ -1743,7 +1782,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldNotRemoveMailFromRepositoryWhenUnknownMailKey() throws Exception {
+    void reprocessingOneTaskShouldNotRemoveMailFromRepositoryWhenUnknownMailKey() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)
@@ -1768,7 +1807,7 @@ public class MailRepositoriesRoutesTest {
     }
 
     @Test
-    public void reprocessingOneTaskShouldFailWhenUnknownMailKey() throws Exception {
+    void reprocessingOneTaskShouldFailWhenUnknownMailKey() throws Exception {
         MailRepository mailRepository = mailRepositoryStore.create(URL_MY_REPO);
         mailRepository.store(FakeMail.builder()
             .name(NAME_1)

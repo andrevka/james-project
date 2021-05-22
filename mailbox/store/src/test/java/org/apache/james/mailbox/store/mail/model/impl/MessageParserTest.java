@@ -141,7 +141,7 @@ class MessageParserTest {
         List<ParsedAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/oneAttachmentAndSomeTextInlined.eml"));
 
         ParsedAttachment attachment = attachments.get(0);
-        assertThat(new ByteArrayInputStream(attachment.getContent()))
+        assertThat(attachment.getContent().openStream())
             .hasSameContentAs(ClassLoader.getSystemResourceAsStream("eml/gimp.png"));
     }
 
@@ -215,7 +215,7 @@ class MessageParserTest {
     void getAttachementsShouldRetrieveAttachmentsWhenSomeAreInTheMultipartAlternative() throws Exception {
         List<ParsedAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/invitationEmailFromOP.eml"));
         
-        assertThat(attachments).hasSize(7);
+        assertThat(attachments).hasSize(6);
     }
 
     @Test
@@ -291,9 +291,18 @@ class MessageParserTest {
     }
 
     @Test
-    void getAttachmentsShouldConsiderICSAsAttachments() throws Exception {
+    void getAttachmentsShouldNotConsiderTextCalendarAsAttachmentsByDefault() throws Exception {
         List<ParsedAttachment> attachments = testee.retrieveAttachments(
             ClassLoader.getSystemResourceAsStream("eml/calendar.eml"));
+
+        assertThat(attachments)
+            .isEmpty();
+    }
+
+    @Test
+    void getAttachmentsShouldConsiderTextCalendarAsAttachments() throws Exception {
+        List<ParsedAttachment> attachments = testee.retrieveAttachments(
+            ClassLoader.getSystemResourceAsStream("eml/calendar2.eml"));
 
         assertThat(attachments)
             .hasSize(1)

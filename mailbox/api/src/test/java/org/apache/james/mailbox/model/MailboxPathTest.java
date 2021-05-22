@@ -31,6 +31,7 @@ import org.apache.james.mailbox.exception.MailboxNameException;
 import org.apache.james.mailbox.exception.TooLongMailboxNameException;
 import org.junit.jupiter.api.Test;
 
+import com.github.steveash.guavate.Guavate;
 import com.google.common.base.Strings;
 
 import nl.jqno.equalsverifier.EqualsVerifier;
@@ -304,10 +305,17 @@ class MailboxPathTest {
     }
 
     @Test
-    void assertAcceptableShouldThrowOnSharp() {
-        assertThatThrownBy(() -> MailboxPath.forUser(USER, "a#b")
+    void assertAcceptableShouldThrowWhenStartsWithSharp() {
+        assertThatThrownBy(() -> MailboxPath.forUser(USER, "#ab")
                 .assertAcceptable('.'))
             .isInstanceOf(MailboxNameException.class);
+    }
+
+    @Test
+    void assertAcceptableShouldNotThrowWhenSharpInTheMiddle() {
+        assertThatCode(() -> MailboxPath.forUser(USER, "mailbox #17")
+                .assertAcceptable('.'))
+            .doesNotThrowAnyException();
     }
 
     @Test
@@ -354,5 +362,31 @@ class MailboxPathTest {
     void isInboxShouldReturnFalseWhenOtherThanInbox() {
         MailboxPath mailboxPath = new MailboxPath(MailboxConstants.USER_NAMESPACE, USER, DefaultMailboxes.ARCHIVE);
         assertThat(mailboxPath.isInbox()).isFalse();
+    }
+
+    @Test
+    void hasParentShouldReturnTrueWhenMailboxHasParent() {
+        MailboxPath mailboxPath = MailboxPath.forUser(USER, "inbox.folder.subfolder");
+        assertThat(mailboxPath.hasParent('.')).isTrue();
+    }
+
+    @Test
+    void hasParentShouldReturnFalseWhenNoParent() {
+        MailboxPath mailboxPath = MailboxPath.forUser(USER, "inbox");
+        assertThat(mailboxPath.hasParent('.')).isFalse();
+    }
+
+    @Test
+    void getParentShouldReturnParents() {
+        MailboxPath mailboxPath = MailboxPath.forUser(USER, "inbox.folder.subfolder");
+        assertThat(mailboxPath.getParents('.').collect(Guavate.toImmutableList()))
+            .containsExactly(MailboxPath.forUser(USER, "inbox"), MailboxPath.forUser(USER, "inbox.folder"));
+    }
+
+    @Test
+    void getParentShouldReturnEmptyWhenTopLevelMailbox() {
+        MailboxPath mailboxPath = MailboxPath.forUser(USER, "inbox");
+        assertThat(mailboxPath.getParents('.').collect(Guavate.toImmutableList()))
+            .isEmpty();
     }
 }

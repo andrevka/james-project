@@ -31,6 +31,7 @@ import static org.apache.mailet.base.MailAddressFixture.RECIPIENT1;
 import static org.apache.mailet.base.MailAddressFixture.SENDER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.awaitility.Durations.TEN_SECONDS;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.verify;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -59,6 +61,7 @@ import org.apache.james.blob.mail.MimeMessageStore;
 import org.apache.james.core.builder.MimeMessageBuilder;
 import org.apache.james.eventsourcing.eventstore.cassandra.CassandraEventStoreModule;
 import org.apache.james.metrics.api.Gauge;
+import org.apache.james.metrics.tests.RecordingMetricFactory;
 import org.apache.james.queue.api.MailQueue;
 import org.apache.james.queue.api.MailQueueMetricContract;
 import org.apache.james.queue.api.MailQueueMetricExtension;
@@ -134,7 +137,7 @@ class RabbitMQMailQueueTest {
                 RabbitMQMailQueueConfiguration.builder()
                     .sizeMetricsEnabled(true)
                     .build(),
-                CassandraBlobStoreFactory.forTesting(cassandra.getConf())
+                CassandraBlobStoreFactory.forTesting(cassandra.getConf(), new RecordingMetricFactory())
                     .passthrough());
         }
 
@@ -343,6 +346,35 @@ class RabbitMQMailQueueTest {
             assertThat(items)
                 .extracting(item -> item.getMail().getName())
                 .containsExactly(name1, name2, name3);
+        }
+
+        @Test
+        void enqueuedEmailsShouldNotBeLostDuringRabbitMQOutages() throws Exception {
+            String name = "myMail";
+
+            rabbitMQExtension.getRabbitMQ().pause();
+            Thread.sleep(2000);
+
+            try {
+                getMailQueue().enQueue(defaultMail()
+                        .name(name)
+                        .build());
+            } catch (Exception e) {
+                // Ignore
+            }
+            rabbitMQExtension.getRabbitMQ().unpause();
+            Thread.sleep(100);
+
+            getMailQueue().republishNotProcessedMails(clock.instant().plus(30, ChronoUnit.MINUTES)).blockLast();
+
+            Flux<MailQueue.MailQueueItem> dequeueFlux = Flux.from(getMailQueue().deQueue());
+
+            List<MailQueue.MailQueueItem> items = dequeueFlux.take(1)
+                    .collectList().block(Duration.ofSeconds(10));
+
+            assertThat(items)
+                    .extracting(item -> item.getMail().getName())
+                    .containsOnly(name);
         }
 
         @Test
@@ -671,7 +703,7 @@ class RabbitMQMailQueueTest {
                 .doOnNext(Throwing.consumer(item -> item.done(true)))
                 .subscribe();
 
-            Awaitility.await().atMost(org.awaitility.Duration.TEN_SECONDS)
+            Awaitility.await().atMost(TEN_SECONDS)
                 .untilAsserted(() -> assertThat(dequeuedMailNames)
                     .containsExactly(name1, name2, name3));
         }
@@ -710,7 +742,7 @@ class RabbitMQMailQueueTest {
                 .doOnNext(Throwing.consumer(item -> item.done(true)))
                 .subscribe();
 
-            Awaitility.await().atMost(org.awaitility.Duration.TEN_SECONDS)
+            Awaitility.await().atMost(TEN_SECONDS)
                 .untilAsserted(() -> assertThat(dequeuedMailNames)
                     .containsExactly(name1, name2, name3));
         }
@@ -738,7 +770,7 @@ class RabbitMQMailQueueTest {
                 .subscribe();
 
 
-            Awaitility.await().atMost(org.awaitility.Duration.TEN_SECONDS)
+            Awaitility.await().atMost(TEN_SECONDS)
                 .untilAsserted(() -> assertThat(deadLetteredCount.get()).isEqualTo(1));
         }
 
@@ -771,7 +803,7 @@ class RabbitMQMailQueueTest {
                 RabbitMQMailQueueConfiguration.builder()
                     .sizeMetricsEnabled(false)
                     .build(),
-                CassandraBlobStoreFactory.forTesting(cassandra.getConf())
+                CassandraBlobStoreFactory.forTesting(cassandra.getConf(), new RecordingMetricFactory())
                     .passthrough());
         }
 
@@ -794,7 +826,7 @@ class RabbitMQMailQueueTest {
                 RabbitMQMailQueueConfiguration.builder()
                     .sizeMetricsEnabled(true)
                     .build(),
-                CassandraBlobStoreFactory.forTesting(cassandra.getConf())
+                CassandraBlobStoreFactory.forTesting(cassandra.getConf(), new RecordingMetricFactory())
                     .deduplication());
         }
 

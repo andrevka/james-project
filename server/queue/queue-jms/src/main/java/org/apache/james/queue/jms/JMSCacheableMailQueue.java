@@ -20,7 +20,6 @@ package org.apache.james.queue.jms;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.Serializable;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
@@ -33,7 +32,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.StringTokenizer;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -54,6 +52,7 @@ import javax.mail.internet.AddressException;
 import javax.mail.internet.MimeMessage;
 
 import org.apache.commons.collections.iterators.EnumerationIterator;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.core.MailAddress;
 import org.apache.james.core.MaybeSender;
 import org.apache.james.lifecycle.api.Disposable;
@@ -68,14 +67,14 @@ import org.apache.james.queue.api.MailQueueItemDecoratorFactory;
 import org.apache.james.queue.api.MailQueueName;
 import org.apache.james.queue.api.ManageableMailQueue;
 import org.apache.james.server.core.MailImpl;
-import org.apache.james.server.core.MimeMessageCopyOnWriteProxy;
-import org.apache.james.util.SerializationUtil;
+import org.apache.james.server.core.MimeMessageWrapper;
 import org.apache.mailet.Attribute;
 import org.apache.mailet.AttributeName;
 import org.apache.mailet.AttributeUtils;
 import org.apache.mailet.AttributeValue;
 import org.apache.mailet.Mail;
 import org.apache.mailet.PerRecipientHeaders;
+import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -307,6 +306,11 @@ public class JMSCacheableMailQueue implements ManageableMailQueue, JMSSupport, M
         enQueue(mail, NO_DELAY, TimeUnit.MILLISECONDS);
     }
 
+    @Override
+    public Publisher<Void> enqueueReactive(Mail mail) {
+        return Mono.fromRunnable(Throwing.runnable(() -> enQueue(mail)).sneakyThrow());
+    }
+
     /**
      * Produce the mail to the JMS Queue
      */
@@ -342,11 +346,13 @@ public class JMSCacheableMailQueue implements ManageableMailQueue, JMSSupport, M
         props.put(JAMES_MAIL_MESSAGE_SIZE, mail.getMessageSize());
         props.put(JAMES_MAIL_NAME, mail.getName());
 
-        // won't serialize the empty headers so it is mandatory
-        // to handle nulls when reconstructing mail from message
-        if (!mail.getPerRecipientSpecificHeaders().getHeadersByRecipient().isEmpty()) {
-            props.put(JAMES_MAIL_PER_RECIPIENT_HEADERS, SerializationUtil.serialize(mail.getPerRecipientSpecificHeaders()));
-        }
+        mail.getPerRecipientSpecificHeaders().getHeadersByRecipient()
+            .asMap()
+            .forEach((recipient, headers) -> props.put(JAMES_MAIL_PER_RECIPIENT_HEADERS + "-" + recipient.asString(),
+                Joiner.on('\n')
+                    .join(headers.stream()
+                        .map(PerRecipientHeaders.Header::asString)
+                        .collect(Guavate.toImmutableList()))));
 
         String recipientsAsString = joiner.join(mail.getRecipients());
 
@@ -359,7 +365,7 @@ public class JMSCacheableMailQueue implements ManageableMailQueue, JMSSupport, M
         props.putAll(mail.attributes()
             .collect(Guavate.toImmutableMap(
                 attribute -> attribute.getName().asString(),
-                attribute -> SerializationUtil.serialize((Serializable) attribute.getValue().value()))));
+                attribute -> attribute.getValue().toJson().toString())));
 
         ImmutableList<String> attributeNames = mail.attributeNames()
             .map(AttributeName::asString)
@@ -395,7 +401,7 @@ public class JMSCacheableMailQueue implements ManageableMailQueue, JMSSupport, M
      */
     protected MimeMessage mimeMessage(Message message) throws MessagingException, JMSException {
         if (message instanceof ObjectMessage) {
-            return new MimeMessageCopyOnWriteProxy(new MimeMessageObjectMessageSource((ObjectMessage) message));
+            return new MimeMessageWrapper(new MimeMessageObjectMessageSource((ObjectMessage) message));
         } else {
             throw new MailQueueException("Not supported JMS Message received " + message);
         }
@@ -414,9 +420,29 @@ public class JMSCacheableMailQueue implements ManageableMailQueue, JMSSupport, M
         MailImpl.Builder builder = MailImpl.builder().name(name);
         builder.errorMessage(message.getStringProperty(JAMES_MAIL_ERROR_MESSAGE));
         builder.lastUpdated(new Date(message.getLongProperty(JAMES_MAIL_LAST_UPDATED)));
+        Enumeration<String> properties = message.getPropertyNames();
 
-        Optional.ofNullable(SerializationUtil.<PerRecipientHeaders>deserialize(message.getStringProperty(JAMES_MAIL_PER_RECIPIENT_HEADERS)))
-                .ifPresent(builder::addAllHeadersForRecipients);
+        PerRecipientHeaders perRecipientHeaders = new PerRecipientHeaders();
+        ImmutableList.copyOf(properties.asIterator())
+            .stream()
+            .filter(property -> property.startsWith(JAMES_MAIL_PER_RECIPIENT_HEADERS + "-"))
+            .flatMap(property -> {
+                try {
+                    MailAddress address = new MailAddress(property.substring(JAMES_MAIL_PER_RECIPIENT_HEADERS.length() + 1));
+                    String headers = message.getStringProperty(property);
+                    return Splitter.on('\n').splitToList(headers)
+                        .stream()
+                        .map(PerRecipientHeaders.Header::fromString)
+                        .map(header -> Pair.of(address, header));
+                } catch (AddressException | JMSException e) {
+                    LOGGER.error("Error deserializing per-recipient header", e);
+                    return Stream.empty();
+                }
+            })
+            .forEach(pair -> perRecipientHeaders.addHeaderForRecipient(pair.getValue(), pair.getKey()));
+        if (!perRecipientHeaders.getHeadersByRecipient().isEmpty()) {
+            builder.addAllHeadersForRecipients(perRecipientHeaders);
+        }
 
         String recipients = message.getStringProperty(JAMES_MAIL_RECIPIENTS);
         StringTokenizer recipientTokenizer = new StringTokenizer(recipients, JAMES_MAIL_SEPARATOR);
@@ -453,7 +479,11 @@ public class JMSCacheableMailQueue implements ManageableMailQueue, JMSSupport, M
         Object attrValue = Throwing.function(message::getObjectProperty).apply(name);
 
         if (attrValue instanceof String) {
-            return Stream.of(new Attribute(AttributeName.of(name), AttributeValue.ofAny(SerializationUtil.deserialize((String) attrValue))));
+            try {
+                return Stream.of(new Attribute(AttributeName.of(name), AttributeValue.fromJsonString((String) attrValue)));
+            } catch (IOException e) {
+                LOGGER.error("Error deserializing mail attribute {} with value {}", name, attrValue, e);
+            }
         } else {
             LOGGER.error("Not supported mail attribute {} of type {} for mail {}", name, attrValue, name);
         }

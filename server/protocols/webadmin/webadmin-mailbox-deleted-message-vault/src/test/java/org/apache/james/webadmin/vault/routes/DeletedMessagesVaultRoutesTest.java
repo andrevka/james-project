@@ -93,6 +93,7 @@ import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxManager;
 import org.apache.james.mailbox.inmemory.InMemoryMessageId;
 import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
+import org.apache.james.mailbox.model.ByteContent;
 import org.apache.james.mailbox.model.FetchGroup;
 import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
@@ -133,7 +134,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import com.google.common.collect.ImmutableList;
 
 import io.restassured.RestAssured;
-import io.restassured.filter.log.LogDetail;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -216,7 +216,6 @@ class DeletedMessagesVaultRoutesTest {
             .start();
         RestAssured.requestSpecification = WebAdminUtils.buildRequestSpecification(webAdminServer)
             .setBasePath(DeletedMessagesVaultRoutes.ROOT_PATH)
-            .log(LogDetail.METHOD)
             .build();
     }
 
@@ -1716,7 +1715,7 @@ class DeletedMessagesVaultRoutesTest {
             mailboxManager.createMailbox(restoreMailboxPath, session);
             MessageManager messageManager = mailboxManager.getMailbox(restoreMailboxPath, session);
             messageManager.appendMessage(
-                MessageManager.AppendCommand.builder().build(new ByteArrayInputStream(CONTENT)),
+                MessageManager.AppendCommand.builder().build(new ByteContent(CONTENT)),
                 session);
 
             Mono.from(vault.append(DELETED_MESSAGE, new ByteArrayInputStream(CONTENT))).block();

@@ -22,6 +22,7 @@ package org.apache.james.server.blob.deduplication
 import java.io.InputStream
 
 import com.google.common.base.Preconditions
+import com.google.common.io.ByteSource
 import javax.inject.{Inject, Named}
 import org.apache.james.blob.api.{BlobId, BlobStore, BlobStoreDAO, BucketName}
 import org.reactivestreams.Publisher
@@ -29,7 +30,7 @@ import reactor.core.scala.publisher.SMono
 
 
 class PassThroughBlobStore @Inject()(blobStoreDAO: BlobStoreDAO,
-                                     @Named("defaultBucket") defaultBucketName: BucketName,
+                                     @Named(BlobStore.DEFAULT_BUCKET_NAME_QUALIFIER) defaultBucketName: BucketName,
                                      blobIdFactory: BlobId.Factory) extends BlobStore {
 
   override def save(bucketName: BucketName, data: Array[Byte], storagePolicy: BlobStore.StoragePolicy): Publisher[BlobId] = {
@@ -43,6 +44,15 @@ class PassThroughBlobStore @Inject()(blobStoreDAO: BlobStoreDAO,
   }
 
   override def save(bucketName: BucketName, data: InputStream, storagePolicy: BlobStore.StoragePolicy): Publisher[BlobId] = {
+    Preconditions.checkNotNull(bucketName)
+    Preconditions.checkNotNull(data)
+    val blobId = blobIdFactory.randomId()
+
+    SMono(blobStoreDAO.save(bucketName, blobId, data))
+      .`then`(SMono.just(blobId))
+  }
+
+  override def save(bucketName: BucketName, data: ByteSource, storagePolicy: BlobStore.StoragePolicy): Publisher[BlobId] = {
     Preconditions.checkNotNull(bucketName)
     Preconditions.checkNotNull(data)
     val blobId = blobIdFactory.randomId()
@@ -69,10 +79,11 @@ class PassThroughBlobStore @Inject()(blobStoreDAO: BlobStoreDAO,
     blobStoreDAO.deleteBucket(bucketName)
   }
 
-  override def delete(bucketName: BucketName, blobId: BlobId): Publisher[Void] = {
+  override def delete(bucketName: BucketName, blobId: BlobId): Publisher[java.lang.Boolean] = {
     Preconditions.checkNotNull(bucketName)
     Preconditions.checkNotNull(blobId)
 
-    blobStoreDAO.delete(bucketName, blobId)
+    SMono.fromPublisher(blobStoreDAO.delete(bucketName, blobId))
+      .`then`(SMono.just(Boolean.box(true)))
   }
 }

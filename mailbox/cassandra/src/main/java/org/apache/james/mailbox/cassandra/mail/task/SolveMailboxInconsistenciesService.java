@@ -19,6 +19,9 @@
 
 package org.apache.james.mailbox.cassandra.mail.task;
 
+import static org.apache.james.backends.cassandra.init.configuration.CassandraConsistenciesConfiguration.ConsistencyChoice.STRONG;
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
+
 import java.util.Collection;
 import java.util.Objects;
 import java.util.Optional;
@@ -408,20 +411,20 @@ public class SolveMailboxInconsistenciesService {
 
     private Flux<Result> processMailboxPathDaoInconsistencies(Context context) {
         return mailboxPathV3DAO.listAll()
-            .flatMap(this::detectMailboxPathDaoInconsistency)
-            .flatMap(inconsistency -> inconsistency.fix(context, mailboxDAO, mailboxPathV3DAO))
+            .flatMap(this::detectMailboxPathDaoInconsistency, DEFAULT_CONCURRENCY)
+            .flatMap(inconsistency -> inconsistency.fix(context, mailboxDAO, mailboxPathV3DAO), DEFAULT_CONCURRENCY)
             .doOnNext(any -> context.incrementProcessedMailboxPathEntries());
     }
 
     private Flux<Result> processMailboxDaoInconsistencies(Context context) {
         return mailboxDAO.retrieveAllMailboxes()
-            .flatMap(this::detectMailboxDaoInconsistency)
-            .flatMap(inconsistency -> inconsistency.fix(context, mailboxDAO, mailboxPathV3DAO))
+            .flatMap(this::detectMailboxDaoInconsistency, DEFAULT_CONCURRENCY)
+            .flatMap(inconsistency -> inconsistency.fix(context, mailboxDAO, mailboxPathV3DAO), DEFAULT_CONCURRENCY)
             .doOnNext(any -> context.incrementProcessedMailboxEntries());
     }
 
     private Mono<Inconsistency> detectMailboxDaoInconsistency(Mailbox mailboxEntry) {
-        Mono<Mailbox> pathEntry = mailboxPathV3DAO.retrieve(mailboxEntry.generateAssociatedPath());
+        Mono<Mailbox> pathEntry = mailboxPathV3DAO.retrieve(mailboxEntry.generateAssociatedPath(), STRONG);
         return Inconsistency.detectMailboxDaoInconsistency(mailboxEntry, pathEntry);
     }
 

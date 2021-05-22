@@ -27,7 +27,10 @@ import static org.apache.james.webadmin.Constants.SEPARATOR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 
 import java.util.List;
 
@@ -95,14 +98,19 @@ public abstract class WebAdminServerIntegrationTest {
         assertThat(dataProbe.listDomains()).contains(DOMAIN);
     }
 
+
+    // Immutable
     @Test
     void mailQueueRoutesShouldBeExposed() {
         when()
             .get(MailQueueRoutes.BASE_URL)
         .then()
-            .statusCode(HttpStatus.OK_200);
+            .statusCode(HttpStatus.OK_200)
+            .body("", containsInAnyOrder("spool", "outgoing"));
     }
 
+
+    // Immutable
     @Test
     void metricsRoutesShouldBeExposed() {
         String body = when()
@@ -116,6 +124,8 @@ public abstract class WebAdminServerIntegrationTest {
         assertThat(body).contains("outgoingMails_total 0.0");
     }
 
+
+    // Immutable
     @Test
     void healthCheckShouldReturn200WhenCalledRepeatedly() {
         given().get(HealthCheckRoutes.HEALTHCHECK);
@@ -130,6 +140,7 @@ public abstract class WebAdminServerIntegrationTest {
             .statusCode(HttpStatus.OK_200);
     }
 
+    // Immutable
     @Test
     void mailRepositoriesRoutesShouldBeExposed() {
         when()
@@ -142,6 +153,8 @@ public abstract class WebAdminServerIntegrationTest {
                 "var/mail/address-error"));
     }
 
+
+    // Immutable
     @Test
     void gettingANonExistingMailRepositoryShouldNotCreateIt() {
         given()
@@ -300,6 +313,7 @@ public abstract class WebAdminServerIntegrationTest {
         assertThat(members).containsOnly(USERNAME, USERNAME_2);
     }
 
+    // Immutable
     @Test
     void getSwaggerShouldReturnJsonDataForSwagger() {
         when()
@@ -322,6 +336,7 @@ public abstract class WebAdminServerIntegrationTest {
             .body(containsString("{\"name\":\"Mailboxes\"}"));
     }
 
+    // Immutable
     @Test
     void validateHealthChecksShouldReturnOk() {
         when()
@@ -330,6 +345,7 @@ public abstract class WebAdminServerIntegrationTest {
             .statusCode(HttpStatus.OK_200);
     }
 
+    // Immutable
     @Test
     void jmapTasksShouldBeExposed() {
         String taskId = with()
@@ -385,6 +401,29 @@ public abstract class WebAdminServerIntegrationTest {
             .body("type", is("MailboxesExportTask"));
     }
 
+    @Test
+    void createMissParentsTasksShouldBeExposed() {
+        String taskId = with()
+            .queryParam("task", "createMissingParents")
+            .post("/mailboxes")
+            .jsonPath()
+            .get("taskId");
+
+        given()
+            .basePath(TasksRoutes.BASE)
+            .when()
+            .get(taskId + "/await")
+            .then()
+            .body("status", is("completed"))
+            .body("type", is("CreateMissingParentsTask"))
+            .body("additionalInformation.created", hasSize(0))
+            .body("additionalInformation.totalCreated", is(0))
+            .body("additionalInformation.failures", empty())
+            .body("additionalInformation.totalFailure", is(0))
+            .body("startedDate", is(notNullValue()))
+            .body("submitDate", is(notNullValue()))
+            .body("completedDate", is(notNullValue()));
+    }
 
     public static ListAppender<ILoggingEvent> getListAppenderForClass(Class clazz) {
         Logger logger = (Logger) LoggerFactory.getLogger(clazz);

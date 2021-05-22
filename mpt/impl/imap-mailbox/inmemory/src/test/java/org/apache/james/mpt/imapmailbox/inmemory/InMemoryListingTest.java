@@ -25,15 +25,14 @@ import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mpt.api.ImapHostSystem;
 import org.apache.james.mpt.imapmailbox.inmemory.host.InMemoryHostSystem;
 import org.apache.james.mpt.imapmailbox.suite.Listing;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class InMemoryListingTest extends Listing {
-
     private ImapHostSystem system;
 
     @Override
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         system = new InMemoryHostSystem();
         system.beforeTest();
@@ -49,11 +48,11 @@ public class InMemoryListingTest extends Listing {
     @Test
     public void listShouldUTF7EscapeSpecialChar() throws Exception {
         system.createMailbox(MailboxPath.forUser(USER, "projects & abc"));
+        system.createMailbox(MailboxPath.forUser(USER, "mailbox #17"));
         system.createMailbox(MailboxPath.forUser(USER, "évaluations"));
 
         simpleScriptedTestProtocol
             .withLocale(Locale.KOREA)
             .run("ListSpecialChar");
     }
-
 }

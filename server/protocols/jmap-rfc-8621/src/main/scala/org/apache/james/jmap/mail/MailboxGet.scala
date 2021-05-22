@@ -20,27 +20,22 @@
 package org.apache.james.jmap.mail
 
 import eu.timepit.refined
-import eu.timepit.refined.api.Refined
-import eu.timepit.refined.collection.NonEmpty
-import org.apache.james.jmap.mail.MailboxGet.UnparsedMailboxId
+import org.apache.james.jmap.api.change.{EmailChanges, Limit, MailboxChanges}
+import org.apache.james.jmap.core.Id.{Id, IdConstraint}
+import org.apache.james.jmap.core.{AccountId, Properties, UuidState}
 import org.apache.james.jmap.method.WithAccountId
-import org.apache.james.jmap.model.State.State
-import org.apache.james.jmap.model.{AccountId, Properties}
 import org.apache.james.mailbox.model.MailboxId
 
 import scala.util.{Failure, Try}
 
 object MailboxGet {
-  type UnparsedMailboxIdConstraint = NonEmpty
-  type UnparsedMailboxId = String Refined UnparsedMailboxIdConstraint
-
-  def asUnparsed(mailboxId: MailboxId): UnparsedMailboxId = refined.refineV[UnparsedMailboxIdConstraint](mailboxId.serialize()) match {
+  def asUnparsed(mailboxId: MailboxId): UnparsedMailboxId = refined.refineV[IdConstraint](mailboxId.serialize()) match {
     case Left(e) => throw new IllegalArgumentException(e)
-    case scala.Right(value) => value
+    case scala.Right(value) => UnparsedMailboxId(value)
   }
 
   def parse(mailboxIdFactory: MailboxId.Factory)(unparsed: UnparsedMailboxId): Try[MailboxId] =
-    parseString(mailboxIdFactory)(unparsed.value)
+    parseString(mailboxIdFactory)(unparsed.id.value)
 
   def parseString(mailboxIdFactory: MailboxId.Factory)(unparsed: String): Try[MailboxId] =
     unparsed match {
@@ -49,6 +44,8 @@ object MailboxGet {
       case _ => Try(mailboxIdFactory.fromString(unparsed))
     }
 }
+
+case class UnparsedMailboxId(id: Id)
 
 case class Ids(value: List[UnparsedMailboxId])
 
@@ -61,6 +58,27 @@ case class NotFound(value: Set[UnparsedMailboxId]) {
 }
 
 case class MailboxGetResponse(accountId: AccountId,
-                              state: State,
+                              state: UuidState,
                               list: List[Mailbox],
                               notFound: NotFound)
+
+object HasMoreChanges {
+  def fromMailboxChanges(mailboxChanges: MailboxChanges): HasMoreChanges = HasMoreChanges(mailboxChanges.hasMoreChanges)
+
+  def fromEmailChanges(emailChanges: EmailChanges): HasMoreChanges = HasMoreChanges(emailChanges.hasMoreChanges)
+}
+
+case class HasMoreChanges(value: Boolean) extends AnyVal
+
+case class MailboxChangesRequest(accountId: AccountId,
+                                 sinceState: UuidState,
+                                 maxChanges: Option[Limit]) extends WithAccountId
+
+case class MailboxChangesResponse(accountId: AccountId,
+                                  oldState: UuidState,
+                                  newState: UuidState,
+                                  hasMoreChanges: HasMoreChanges,
+                                  updatedProperties: Option[Properties],
+                                  created: Set[MailboxId],
+                                  updated: Set[MailboxId],
+                                  destroyed: Set[MailboxId])

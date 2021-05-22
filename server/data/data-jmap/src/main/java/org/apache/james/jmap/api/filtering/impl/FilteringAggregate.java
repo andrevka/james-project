@@ -20,10 +20,15 @@
 package org.apache.james.jmap.api.filtering.impl;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.james.eventsourcing.Event;
+import org.apache.james.eventsourcing.EventId;
 import org.apache.james.eventsourcing.eventstore.History;
+import org.apache.james.jmap.api.exception.StateMismatchException;
 import org.apache.james.jmap.api.filtering.Rule;
+import org.apache.james.jmap.api.filtering.Rules;
+import org.apache.james.jmap.api.filtering.Version;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -62,10 +67,11 @@ public class FilteringAggregate {
         this.history = history;
     }
 
-    public List<? extends Event> defineRules(List<Rule> rules) {
-        Preconditions.checkArgument(shouldNotContainDuplicates(rules));
+    public List<? extends Event> defineRules(DefineRulesCommand storeCommand) {
+        Preconditions.checkArgument(shouldNotContainDuplicates(storeCommand.getRules()));
+        StateMismatchException.checkState(expectedState(storeCommand.getIfInState()), "Provided state must be as same as the current state");
         ImmutableList<RuleSetDefined> events = ImmutableList.of(
-            new RuleSetDefined(aggregateId, history.getNextEventId(), ImmutableList.copyOf(rules)));
+            new RuleSetDefined(aggregateId, history.getNextEventId(), ImmutableList.copyOf(storeCommand.getRules())));
         events.forEach(this::apply);
         return events;
     }
@@ -78,8 +84,17 @@ public class FilteringAggregate {
         return uniqueIdCount == rules.size();
     }
 
-    public List<Rule> listRules() {
-        return state.rules;
+    private boolean expectedState(Optional<Version> ifInState) {
+        return ifInState.map(requestedVersion -> history.getVersionAsJava()
+                .map(eventId -> new Version(eventId.value()))
+                .orElse(Version.INITIAL)
+                .equals(requestedVersion))
+            .orElse(true);
+    }
+
+    public Rules listRules() {
+        return new Rules(state.rules,
+            history.getVersionAsJava().map(EventId::value).map(Version::new).orElse(Version.INITIAL));
     }
 
     private void apply(Event event) {

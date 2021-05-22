@@ -32,11 +32,18 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.backends.cassandra.CassandraCluster;
 import org.apache.james.backends.cassandra.CassandraClusterExtension;
 import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
+import org.apache.james.backends.cassandra.init.configuration.CassandraConsistenciesConfiguration;
 import org.apache.james.backends.cassandra.utils.CassandraUtils;
+import org.apache.james.backends.cassandra.versions.CassandraSchemaVersionDAO;
+import org.apache.james.backends.cassandra.versions.CassandraSchemaVersionManager;
 import org.apache.james.blob.api.BlobStore;
 import org.apache.james.blob.api.HashBlobId;
 import org.apache.james.blob.cassandra.BlobTables;
 import org.apache.james.core.Username;
+import org.apache.james.events.EventBus;
+import org.apache.james.eventsourcing.eventstore.cassandra.CassandraEventStore;
+import org.apache.james.eventsourcing.eventstore.cassandra.EventStoreDao;
+import org.apache.james.eventsourcing.eventstore.cassandra.JsonEventSerializer;
 import org.apache.james.mailbox.MailboxManagerTest;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
@@ -44,6 +51,8 @@ import org.apache.james.mailbox.MessageManager.AppendResult;
 import org.apache.james.mailbox.SubscriptionManager;
 import org.apache.james.mailbox.cassandra.ids.CassandraId;
 import org.apache.james.mailbox.cassandra.ids.CassandraMessageId;
+import org.apache.james.mailbox.cassandra.mail.CassandraACLDAOV1;
+import org.apache.james.mailbox.cassandra.mail.CassandraACLDAOV2;
 import org.apache.james.mailbox.cassandra.mail.CassandraACLMapper;
 import org.apache.james.mailbox.cassandra.mail.CassandraApplicableFlagDAO;
 import org.apache.james.mailbox.cassandra.mail.CassandraAttachmentDAOV2;
@@ -53,12 +62,12 @@ import org.apache.james.mailbox.cassandra.mail.CassandraDeletedMessageDAO;
 import org.apache.james.mailbox.cassandra.mail.CassandraFirstUnseenDAO;
 import org.apache.james.mailbox.cassandra.mail.CassandraMailboxCounterDAO;
 import org.apache.james.mailbox.cassandra.mail.CassandraMailboxRecentsDAO;
-import org.apache.james.mailbox.cassandra.mail.CassandraMessageDAO;
+import org.apache.james.mailbox.cassandra.mail.CassandraMessageDAOV3;
 import org.apache.james.mailbox.cassandra.mail.CassandraMessageIdDAO;
 import org.apache.james.mailbox.cassandra.mail.CassandraMessageIdToImapUidDAO;
 import org.apache.james.mailbox.cassandra.mail.CassandraUserMailboxRightsDAO;
 import org.apache.james.mailbox.cassandra.mail.MailboxAggregateModule;
-import org.apache.james.mailbox.events.EventBus;
+import org.apache.james.mailbox.cassandra.mail.eventsourcing.acl.ACLModule;
 import org.apache.james.mailbox.model.AttachmentId;
 import org.apache.james.mailbox.model.FetchGroup;
 import org.apache.james.mailbox.model.MailboxACL;
@@ -67,6 +76,8 @@ import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.MessageAttachmentMetadata;
 import org.apache.james.mailbox.model.MessageRange;
 import org.apache.james.mailbox.model.MessageResult;
+import org.apache.james.mailbox.store.BatchSizes;
+import org.apache.james.mailbox.store.MailboxManagerConfiguration;
 import org.apache.james.mailbox.store.PreDeletionHooks;
 import org.apache.james.mailbox.store.StoreSubscriptionManager;
 import org.apache.james.mailbox.store.mail.MessageMapper;
@@ -787,11 +798,19 @@ public class CassandraMailboxManagerTest extends MailboxManagerTest<CassandraMai
         }
 
         private CassandraACLMapper aclMapper(CassandraCluster cassandraCluster) {
+            CassandraSchemaVersionDAO schemaVersionDAO = new CassandraSchemaVersionDAO(cassandraCluster.getConf());
+            CassandraSchemaVersionManager versionManager = new CassandraSchemaVersionManager(schemaVersionDAO);
+            CassandraACLDAOV1 aclDAOV1 = new CassandraACLDAOV1(cassandraCluster.getConf(), CassandraConfiguration.DEFAULT_CONFIGURATION, CassandraConsistenciesConfiguration.DEFAULT);
+            CassandraACLDAOV2 aclDAOv2 = new CassandraACLDAOV2(cassandraCluster.getConf());
+            JsonEventSerializer jsonEventSerializer = JsonEventSerializer
+                .forModules(ACLModule.ACL_UPDATE)
+                .withoutNestedType();
+            CassandraUserMailboxRightsDAO usersRightDAO = new CassandraUserMailboxRightsDAO(cassandraCluster.getConf(), CassandraUtils.WITH_DEFAULT_CONFIGURATION);
+            CassandraEventStore eventStore = new CassandraEventStore(new EventStoreDao(cassandraCluster.getConf(), jsonEventSerializer, CassandraConsistenciesConfiguration.DEFAULT));
             return new CassandraACLMapper(
-                cassandraCluster.getConf(),
-                rightsDAO(cassandraCluster),
-                CassandraConfiguration.DEFAULT_CONFIGURATION,
-                cassandra.getCassandraConsistenciesConfiguration());
+                new CassandraACLMapper.StoreV1(usersRightDAO, aclDAOV1),
+                new CassandraACLMapper.StoreV2(usersRightDAO, aclDAOv2, eventStore),
+                versionManager);
         }
 
         private CassandraUserMailboxRightsDAO rightsDAO(CassandraCluster cassandraCluster) {
@@ -817,17 +836,41 @@ public class CassandraMailboxManagerTest extends MailboxManagerTest<CassandraMai
             return new CassandraMessageIdToImapUidDAO(
                 cassandraCluster.getConf(),
                 cassandra.getCassandraConsistenciesConfiguration(),
-                new CassandraMessageId.Factory());
+                new CassandraMessageId.Factory(),
+                CassandraConfiguration.DEFAULT_CONFIGURATION);
         }
 
-        private CassandraMessageDAO messageDAO(CassandraCluster cassandraCluster) {
-            return new CassandraMessageDAO(
+        private CassandraMessageDAOV3 messageDAO(CassandraCluster cassandraCluster) {
+            return new CassandraMessageDAOV3(
                 cassandraCluster.getConf(),
                 cassandraCluster.getTypesProvider(),
                 mock(BlobStore.class),
                 new HashBlobId.Factory(),
-                new CassandraMessageId.Factory(),
                 cassandra.getCassandraConsistenciesConfiguration());
         }
+    }
+
+    @Nested
+    class WithBatchSize extends MailboxManagerTest<CassandraMailboxManager> {
+        @Override
+        protected CassandraMailboxManager provideMailboxManager() {
+            CassandraMailboxManager mgt = CassandraMailboxManagerProvider.provideMailboxManager(
+                cassandra.getCassandraCluster(),
+                new PreDeletionHooks(preDeletionHooks(), new RecordingMetricFactory()),
+                CassandraConfiguration.DEFAULT_CONFIGURATION,
+                new MailboxManagerConfiguration(BatchSizes.uniqueBatchSize(5)));
+            return mgt;
+        }
+
+        @Override
+        protected SubscriptionManager provideSubscriptionManager() {
+            return new StoreSubscriptionManager(provideMailboxManager().getMapperFactory());
+        }
+
+        @Override
+        protected EventBus retrieveEventBus(CassandraMailboxManager mailboxManager) {
+            return mailboxManager.getEventBus();
+        }
+
     }
 }

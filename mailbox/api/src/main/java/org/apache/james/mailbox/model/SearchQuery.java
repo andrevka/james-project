@@ -139,20 +139,6 @@ public class SearchQuery implements Serializable {
             SentDate,
 
             /**
-             * addr-name of the first "From" address
-             * 
-             * This MUST BE converted to uppercase before doing the sort
-             */
-            DisplayFrom,
-
-            /**
-             * addr-name of the first "To" address
-             * 
-             * This MUST BE converted to uppercase before doing the sort
-             */
-            DisplayTo,
-
-            /**
              * Uid of the message. This is the DEFAULT if no other is specified
              */
             Uid,
@@ -537,7 +523,7 @@ public class SearchQuery implements Serializable {
      *            <code>NumericRange</code>'s, not null
      * @return <code>Criterion</code>, not null
      */
-    public static Criterion uid(UidRange[] range) {
+    public static Criterion uid(UidRange... range) {
         return new UidCriterion(range);
     }
 

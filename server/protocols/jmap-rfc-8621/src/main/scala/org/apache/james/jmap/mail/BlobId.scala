@@ -19,15 +19,14 @@
 
 package org.apache.james.jmap.mail
 
-import eu.timepit.refined.collection.NonEmpty
 import eu.timepit.refined.refineV
-import eu.timepit.refined.types.string.NonEmptyString
+import org.apache.james.jmap.core.Id.{Id, IdConstraint}
 import org.apache.james.mailbox.model.MessageId
 
 import scala.util.{Failure, Success, Try}
 
 object BlobId {
-  def of(string: String): Try[BlobId] = refineV[NonEmpty](string) match {
+  def of(string: String): Try[BlobId] = refineV[IdConstraint](string) match {
       case scala.Right(value) => Success(BlobId(value))
       case Left(e) => Failure(new IllegalArgumentException(e))
     }
@@ -35,4 +34,4 @@ object BlobId {
   def of(messageId: MessageId, partId: PartId): Try[BlobId] = of(s"${messageId.serialize()}_${partId.serialize}")
 }
 
-case class BlobId(value: NonEmptyString)
+case class BlobId(value: Id)

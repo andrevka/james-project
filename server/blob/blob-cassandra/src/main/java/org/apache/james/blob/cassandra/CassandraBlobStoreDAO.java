@@ -19,6 +19,8 @@
 
 package org.apache.james.blob.cassandra;
 
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
+
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -30,10 +32,13 @@ import javax.inject.Named;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.james.backends.cassandra.init.configuration.CassandraConfiguration;
 import org.apache.james.blob.api.BlobId;
+import org.apache.james.blob.api.BlobStore;
 import org.apache.james.blob.api.BlobStoreDAO;
 import org.apache.james.blob.api.BucketName;
 import org.apache.james.blob.api.ObjectNotFoundException;
 import org.apache.james.blob.api.ObjectStoreIOException;
+import org.apache.james.metrics.api.Metric;
+import org.apache.james.metrics.api.MetricFactory;
 import org.apache.james.util.DataChunker;
 import org.apache.james.util.ReactorUtils;
 
@@ -48,21 +53,33 @@ import reactor.core.publisher.Mono;
 public class CassandraBlobStoreDAO implements BlobStoreDAO {
     public static final boolean LAZY = false;
 
+    public static final String CASSANDRA_BLOBSTORE_CL_ONE_MISS_COUNT_METRIC_NAME = "cassandraBlobStoreClOneMisses";
+    public static final String CASSANDRA_BLOBSTORE_CL_ONE_HIT_COUNT_METRIC_NAME = "cassandraBlobStoreClOneHits";
+
     private final CassandraDefaultBucketDAO defaultBucketDAO;
     private final CassandraBucketDAO bucketDAO;
     private final CassandraConfiguration configuration;
     private final BucketName defaultBucket;
+
+    private final MetricFactory metricFactory;
+    private final Metric metricClOneHitCount;
+    private final Metric metricClOneMissCount;
 
     @Inject
     @VisibleForTesting
     public CassandraBlobStoreDAO(CassandraDefaultBucketDAO defaultBucketDAO,
                                  CassandraBucketDAO bucketDAO,
                                  CassandraConfiguration cassandraConfiguration,
-                                 @Named("defaultBucket") BucketName defaultBucket) {
+                                 @Named(BlobStore.DEFAULT_BUCKET_NAME_QUALIFIER) BucketName defaultBucket,
+                                 MetricFactory metricFactory) {
         this.defaultBucketDAO = defaultBucketDAO;
         this.bucketDAO = bucketDAO;
         this.configuration = cassandraConfiguration;
         this.defaultBucket = defaultBucket;
+        this.metricFactory = metricFactory;
+
+        this.metricClOneMissCount = metricFactory.generate(CASSANDRA_BLOBSTORE_CL_ONE_MISS_COUNT_METRIC_NAME);
+        this.metricClOneHitCount = metricFactory.generate(CASSANDRA_BLOBSTORE_CL_ONE_HIT_COUNT_METRIC_NAME);
     }
 
     @Override
@@ -158,11 +175,30 @@ public class CassandraBlobStoreDAO implements BlobStoreDAO {
         return bucketDAO.listAll()
             .filter(bucketNameBlobIdPair -> bucketNameBlobIdPair.getKey().equals(bucketName))
             .map(Pair::getValue)
-            .flatMap(blobId -> delete(bucketName, blobId))
+            .flatMap(blobId -> delete(bucketName, blobId), DEFAULT_CONCURRENCY)
             .then();
     }
 
     private Mono<ByteBuffer> readPart(BucketName bucketName, BlobId blobId, Integer partIndex) {
+        if (configuration.isOptimisticConsistencyLevel()) {
+            return readPartClOne(bucketName, blobId, partIndex)
+                .doOnNext(any -> metricClOneHitCount.increment())
+                .switchIfEmpty(Mono.fromRunnable(metricClOneMissCount::increment)
+                    .then(readPartClDefault(bucketName, blobId, partIndex)));
+        } else {
+            return readPartClDefault(bucketName, blobId, partIndex);
+        }
+    }
+
+    private Mono<ByteBuffer> readPartClOne(BucketName bucketName, BlobId blobId, Integer partIndex) {
+        if (isDefaultBucket(bucketName)) {
+            return defaultBucketDAO.readPartClOne(blobId, partIndex);
+        } else {
+            return bucketDAO.readPartClOne(bucketName, blobId, partIndex);
+        }
+    }
+
+    private Mono<ByteBuffer> readPartClDefault(BucketName bucketName, BlobId blobId, Integer partIndex) {
         if (isDefaultBucket(bucketName)) {
             return defaultBucketDAO.readPart(blobId, partIndex);
         } else {
@@ -171,6 +207,25 @@ public class CassandraBlobStoreDAO implements BlobStoreDAO {
     }
 
     private Mono<Integer> selectRowCount(BucketName bucketName, BlobId blobId) {
+        if (configuration.isOptimisticConsistencyLevel()) {
+            return selectRowCountClOne(bucketName, blobId)
+                .doOnNext(any -> metricClOneHitCount.increment())
+                .switchIfEmpty(Mono.fromRunnable(metricClOneMissCount::increment)
+                    .then(selectRowCountClDefault(bucketName, blobId)));
+        } else {
+            return selectRowCountClDefault(bucketName, blobId);
+        }
+    }
+
+    private Mono<Integer> selectRowCountClOne(BucketName bucketName, BlobId blobId) {
+        if (isDefaultBucket(bucketName)) {
+            return defaultBucketDAO.selectRowCountClOne(blobId);
+        } else {
+            return bucketDAO.selectRowCountClOne(bucketName, blobId);
+        }
+    }
+
+    private Mono<Integer> selectRowCountClDefault(BucketName bucketName, BlobId blobId) {
         if (isDefaultBucket(bucketName)) {
             return defaultBucketDAO.selectRowCount(blobId);
         } else {

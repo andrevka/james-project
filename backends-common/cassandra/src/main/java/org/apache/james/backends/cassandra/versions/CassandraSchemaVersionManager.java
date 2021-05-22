@@ -35,8 +35,8 @@ import com.google.common.base.Preconditions;
 import reactor.core.publisher.Mono;
 
 public class CassandraSchemaVersionManager {
-    public static final SchemaVersion MIN_VERSION = new SchemaVersion(5);
-    public static final SchemaVersion MAX_VERSION = new SchemaVersion(8);
+    public static final SchemaVersion MIN_VERSION = new SchemaVersion(8);
+    public static final SchemaVersion MAX_VERSION = new SchemaVersion(10);
     public static final SchemaVersion DEFAULT_VERSION = MIN_VERSION;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CassandraSchemaVersionManager.class);

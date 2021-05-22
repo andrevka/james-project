@@ -19,6 +19,8 @@
 
 package org.apache.mailbox.tools.indexer;
 
+import static org.apache.james.util.ReactorUtils.DEFAULT_CONCURRENCY;
+
 import java.time.Duration;
 
 import javax.inject.Inject;
@@ -200,7 +202,7 @@ public class ReIndexerPerformer {
 
         return mailboxSessionMapperFactory.getMessageIdMapper(session)
             .findReactive(ImmutableList.of(messageId), MessageMapper.FetchType.Full)
-            .flatMap(mailboxMessage -> reIndex(mailboxMessage, session))
+            .flatMap(mailboxMessage -> reIndex(mailboxMessage, session), DEFAULT_CONCURRENCY)
             .reduce(Task::combine)
             .switchIfEmpty(Mono.just(Result.COMPLETED))
             .onErrorResume(e -> {
@@ -215,7 +217,7 @@ public class ReIndexerPerformer {
 
         Flux<Either<Failure, ReIndexingEntry>> entriesToIndex = Flux.merge(
             Flux.fromIterable(previousReIndexingFailures.messageFailures())
-                .flatMap(this::createReindexingEntryFromFailure),
+                .flatMap(this::createReindexingEntryFromFailure, ReactorUtils.DEFAULT_CONCURRENCY),
             Flux.fromIterable(previousReIndexingFailures.mailboxFailures())
                 .flatMap(mailboxId -> mapper.findMailboxById(mailboxId)
                     .flatMapMany(mailbox -> reIndexingEntriesForMailbox(mailbox, mailboxSession, runningOptions))
@@ -269,10 +271,14 @@ public class ReIndexerPerformer {
     }
 
     private Mono<Void> updateSearchIndex(Mailbox mailbox, MailboxSession mailboxSession, RunningOptions runningOptions) {
-        if (runningOptions.getMode() == RunningOptions.Mode.REBUILD_ALL) {
-            return messageSearchIndex.deleteAll(mailboxSession, mailbox.getMailboxId());
+        switch (runningOptions.getMode()) {
+            case REBUILD_ALL:
+                return messageSearchIndex.deleteAll(mailboxSession, mailbox.getMailboxId());
+            case REBUILD_ALL_NO_CLEANUP:
+            case FIX_OUTDATED:
+            default:
+                return Mono.empty();
         }
-        return Mono.empty();
     }
 
     private Mono<Task.Result> reIndexMessages(Flux<Either<Failure, ReIndexingEntry>> entriesToIndex, RunningOptions runningOptions, ReprocessingContext reprocessingContext) {
@@ -325,20 +331,26 @@ public class ReIndexerPerformer {
             .flatMap(message -> isIndexUpToDate(entry.getMailbox(), message)
                 .flatMap(upToDate -> {
                     if (upToDate) {
-                        return Mono.just(Either.right(Result.COMPLETED));
+                        return Mono.just(Either.<Failure, Result>right(Result.COMPLETED));
                     }
-                    return correct(entry, message);
-                }));
+                    return correct(entry);
+                }))
+            .onErrorResume(e -> {
+                LOGGER.warn("ReIndexing failed for {} {}", entry.getMailbox().generateAssociatedPath(), entry.getUid(), e);
+                return Mono.just(Either.left(new MessageFailure(entry.getMailbox().getMailboxId(), entry.getUid())));
+            });
     }
 
-    private Mono<Either<Failure, Result>> correct(ReIndexingEntry entry, MailboxMessage message) {
-        return messageSearchIndex.delete(entry.getMailboxSession(), entry.getMailbox().getMailboxId(), ImmutableList.of(message.getUid()))
-            .then(index(entry));
+    private Mono<Either<Failure, Result>> correct(ReIndexingEntry entry) {
+        // Leverage the fact that index does an upsert, removing pre-existing documents
+        // We do not need to delete the existing document before indexing it
+        return index(entry);
     }
 
     private Mono<Boolean> isIndexUpToDate(Mailbox mailbox, MailboxMessage message) {
         return messageSearchIndex.retrieveIndexedFlags(mailbox, message.getUid())
-            .map(flags -> isIndexUpToDate(message, flags));
+            .map(flags -> isIndexUpToDate(message, flags))
+            .switchIfEmpty(Mono.just(false));
     }
 
     private boolean isIndexUpToDate(MailboxMessage message, Flags flags) {

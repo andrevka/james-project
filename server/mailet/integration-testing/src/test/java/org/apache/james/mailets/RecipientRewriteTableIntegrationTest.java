@@ -25,6 +25,8 @@ import static org.apache.james.mailets.configuration.Constants.PASSWORD;
 import static org.apache.james.mailets.configuration.Constants.awaitAtMostOneMinute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.File;
+
 import org.apache.james.modules.MailboxProbeImpl;
 import org.apache.james.modules.protocols.ImapGuiceProbe;
 import org.apache.james.modules.protocols.SmtpGuiceProbe;
@@ -35,11 +37,11 @@ import org.apache.james.utils.TestIMAPClient;
 import org.apache.james.utils.WebAdminGuiceProbe;
 import org.apache.james.webadmin.WebAdminUtils;
 import org.apache.james.webadmin.routes.ForwardRoutes;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 import io.restassured.specification.RequestSpecification;
 
@@ -57,20 +59,18 @@ public class RecipientRewriteTableIntegrationTest {
     private static final String GROUP_LOCAL_PART = "group";
     private static final String GROUP = GROUP_LOCAL_PART + "@" + DEFAULT_DOMAIN;
 
-    @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
-    @Rule
+    @RegisterExtension
     public TestIMAPClient testIMAPClient = new TestIMAPClient();
-    @Rule
+    @RegisterExtension
     public SMTPMessageSender messageSender = new SMTPMessageSender(DEFAULT_DOMAIN);
 
     private TemporaryJamesServer jamesServer;
     private DataProbe dataProbe;
     private RequestSpecification webAdminApi;
 
-    @Before
-    public void setup() throws Exception {
-        jamesServer = TemporaryJamesServer.builder().build(temporaryFolder.newFolder());
+    @BeforeEach
+    void setup(@TempDir File temporaryFolder) throws Exception {
+        jamesServer = TemporaryJamesServer.builder().build(temporaryFolder);
         jamesServer.start();
 
         dataProbe = jamesServer.getProbe(DataProbeImpl.class);
@@ -80,18 +80,20 @@ public class RecipientRewriteTableIntegrationTest {
         dataProbe.addUser(RECIPIENT, PASSWORD);
         dataProbe.addUser(ANY_AT_JAMES, PASSWORD);
         dataProbe.addUser(OTHER_AT_JAMES, PASSWORD);
+        dataProbe.addUser(FROM, PASSWORD);
 
         webAdminApi = WebAdminUtils.spec(jamesServer.getProbe(WebAdminGuiceProbe.class).getWebAdminPort());
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         jamesServer.shutdown();
     }
 
     @Test
-    public void rrtServiceShouldNotImpactRecipientsNotMatchingAnyRRT() throws Exception {
+    void rrtServiceShouldNotImpactRecipientsNotMatchingAnyRRT() throws Exception {
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -102,11 +104,12 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void rrtServiceShouldDeliverEmailToMappingRecipients() throws Exception {
+    void rrtServiceShouldDeliverEmailToMappingRecipients() throws Exception {
         dataProbe.addAddressMapping(RECIPIENT_LOCAL_PART, DEFAULT_DOMAIN, ANY_AT_JAMES);
         dataProbe.addAddressMapping(RECIPIENT_LOCAL_PART, DEFAULT_DOMAIN, OTHER_AT_JAMES);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -122,11 +125,12 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void rrtServiceShouldNotDeliverEmailToRecipientWhenHaveMappingRecipients() throws Exception {
+    void rrtServiceShouldNotDeliverEmailToRecipientWhenHaveMappingRecipients() throws Exception {
         dataProbe.addAddressMapping(RECIPIENT_LOCAL_PART, DEFAULT_DOMAIN, ANY_AT_JAMES);
         dataProbe.addAddressMapping(RECIPIENT_LOCAL_PART, DEFAULT_DOMAIN, OTHER_AT_JAMES);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -137,7 +141,7 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void rrtServiceShouldDeliverEmailToRecipientOnLocalWhenMappingContainsNonDomain() throws Exception {
+    void rrtServiceShouldDeliverEmailToRecipientOnLocalWhenMappingContainsNonDomain() throws Exception {
         String nonDomainUser = "nondomain";
         String localUser = nonDomainUser + "@" + dataProbe.getDefaultDomain();
         dataProbe.addUser(localUser, PASSWORD);
@@ -146,6 +150,7 @@ public class RecipientRewriteTableIntegrationTest {
         dataProbe.addAddressMapping(RECIPIENT_LOCAL_PART, DEFAULT_DOMAIN, OTHER_AT_JAMES);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -161,11 +166,12 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void messageShouldRedirectToTheSameUserWhenDomainMapping() throws Exception {
+    void messageShouldRedirectToTheSameUserWhenDomainMapping() throws Exception {
         dataProbe.addDomainAliasMapping(DEFAULT_DOMAIN, JAMES_ANOTHER_DOMAIN);
         dataProbe.addUser(ANY_AT_ANOTHER_DOMAIN, PASSWORD);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, ANY_AT_JAMES);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -176,10 +182,11 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void messageShouldNotSendToRecipientWhenDomainMapping() throws Exception {
+    void messageShouldNotSendToRecipientWhenDomainMapping() throws Exception {
         dataProbe.addDomainAliasMapping(DEFAULT_DOMAIN, JAMES_ANOTHER_DOMAIN);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, ANY_AT_JAMES);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -190,11 +197,12 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void rrtServiceShouldDeliverEmailToForwardRecipients() throws Exception {
+    void rrtServiceShouldDeliverEmailToForwardRecipients() throws Exception {
         webAdminApi.put(ForwardRoutes.ROOT_PATH + "/" + RECIPIENT + "/targets/" + ANY_AT_JAMES);
         webAdminApi.put(ForwardRoutes.ROOT_PATH + "/" + RECIPIENT + "/targets/" + OTHER_AT_JAMES);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, RECIPIENT);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -209,12 +217,13 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void rrtServiceShouldFollowForwardWhenSendingToAGroup() throws Exception {
+    void rrtServiceShouldFollowForwardWhenSendingToAGroup() throws Exception {
         dataProbe.addAddressMapping(GROUP_LOCAL_PART, DEFAULT_DOMAIN, ANY_AT_JAMES);
 
         webAdminApi.put(ForwardRoutes.ROOT_PATH + "/" + ANY_AT_JAMES + "/targets/" + OTHER_AT_JAMES);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, GROUP);
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())
@@ -225,7 +234,7 @@ public class RecipientRewriteTableIntegrationTest {
     }
 
     @Test
-    public void domainAliasMappingShouldNotCreateNonExistedUserWhenReRouting() throws Exception {
+    void domainAliasMappingShouldNotCreateNonExistedUserWhenReRouting() throws Exception {
         dataProbe.addDomain("domain1.com");
         dataProbe.addDomain("domain2.com");
 
@@ -235,6 +244,7 @@ public class RecipientRewriteTableIntegrationTest {
         dataProbe.addUser("user@domain1.com", PASSWORD);
 
         messageSender.connect(LOCALHOST_IP, jamesServer.getProbe(SmtpGuiceProbe.class).getSmtpPort())
+            .authenticate(FROM, PASSWORD)
             .sendMessage(FROM, "user@domain2.com");
 
         testIMAPClient.connect(LOCALHOST_IP, jamesServer.getProbe(ImapGuiceProbe.class).getImapPort())

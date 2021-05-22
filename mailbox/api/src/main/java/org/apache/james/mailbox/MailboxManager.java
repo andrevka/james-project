@@ -139,6 +139,10 @@ public interface MailboxManager extends RequestAware, RightManager, MailboxAnnot
      */
     MessageManager getMailbox(MailboxId mailboxId, MailboxSession session) throws MailboxException;
 
+    Publisher<MessageManager> getMailboxReactive(MailboxId mailboxId, MailboxSession session);
+
+    Publisher<MessageManager> getMailboxReactive(MailboxPath mailboxPath, MailboxSession session);
+
     /**
      * Creates a new mailbox. Any intermediary mailboxes missing from the
      * hierarchy should be created.
@@ -288,6 +292,8 @@ public interface MailboxManager extends RequestAware, RightManager, MailboxAnnot
      * @return a list of MessageRange - uids assigned to moved messages
      */
     List<MessageRange> moveMessages(MessageRange set, MailboxPath from, MailboxPath to, MailboxSession session) throws MailboxException;
+
+    List<MessageRange> moveMessages(MessageRange set, MailboxId from, MailboxId to, MailboxSession session) throws MailboxException;
 
     enum MailboxSearchFetchType {
         Minimal,

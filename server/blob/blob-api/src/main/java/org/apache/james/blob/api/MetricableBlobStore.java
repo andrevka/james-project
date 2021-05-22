@@ -26,6 +26,8 @@ import javax.inject.Named;
 import org.apache.james.metrics.api.MetricFactory;
 import org.reactivestreams.Publisher;
 
+import com.google.common.io.ByteSource;
+
 public class MetricableBlobStore implements BlobStore {
 
     public static final String BLOB_STORE_IMPLEMENTATION = "blobStoreImplementation";
@@ -59,6 +61,11 @@ public class MetricableBlobStore implements BlobStore {
     }
 
     @Override
+    public Publisher<BlobId> save(BucketName bucketName, ByteSource data, StoragePolicy storagePolicy) {
+        return metricFactory.decoratePublisherWithTimerMetric(SAVE_INPUT_STREAM_TIMER_NAME, blobStoreImpl.save(bucketName, data, storagePolicy));
+    }
+
+    @Override
     public Publisher<byte[]> readBytes(BucketName bucketName, BlobId blobId) {
         return metricFactory.decoratePublisherWithTimerMetric(READ_BYTES_TIMER_NAME, blobStoreImpl.readBytes(bucketName, blobId));
     }
@@ -67,6 +74,17 @@ public class MetricableBlobStore implements BlobStore {
     public InputStream read(BucketName bucketName, BlobId blobId) {
         return metricFactory
             .decorateSupplierWithTimerMetric(READ_TIMER_NAME, () -> blobStoreImpl.read(bucketName, blobId));
+    }
+
+    @Override
+    public Publisher<byte[]> readBytes(BucketName bucketName, BlobId blobId, StoragePolicy storagePolicy) {
+        return metricFactory.decoratePublisherWithTimerMetric(READ_BYTES_TIMER_NAME, blobStoreImpl.readBytes(bucketName, blobId, storagePolicy));
+    }
+
+    @Override
+    public InputStream read(BucketName bucketName, BlobId blobId, StoragePolicy storagePolicy) {
+        return metricFactory
+            .decorateSupplierWithTimerMetric(READ_TIMER_NAME, () -> blobStoreImpl.read(bucketName, blobId, storagePolicy));
     }
 
     @Override
@@ -80,7 +98,7 @@ public class MetricableBlobStore implements BlobStore {
     }
 
     @Override
-    public Publisher<Void> delete(BucketName bucketName, BlobId blobId) {
+    public Publisher<Boolean> delete(BucketName bucketName, BlobId blobId) {
         return metricFactory.decoratePublisherWithTimerMetric(DELETE_TIMER_NAME, blobStoreImpl.delete(bucketName, blobId));
     }
 

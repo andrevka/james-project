@@ -18,14 +18,14 @@
  ****************************************************************/
 package org.apache.james.jmap.http;
 
+import java.util.Collection;
 import java.util.List;
 
-import org.apache.james.jmap.exceptions.UnauthorizedException;
+import org.apache.james.jmap.exceptions.NoAuthorizationSuppliedException;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.metrics.api.MetricFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import com.github.steveash.guavate.Guavate;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
@@ -34,9 +34,11 @@ import reactor.core.publisher.Mono;
 import reactor.netty.http.server.HttpServerRequest;
 
 public class Authenticator {
-    private static final Logger LOGGER = LoggerFactory.getLogger(Authenticator.class);
-
     public static Authenticator of(MetricFactory metricFactory, AuthenticationStrategy... authenticationStrategies) {
+        return of(metricFactory, ImmutableList.copyOf(authenticationStrategies));
+    }
+
+    public static Authenticator of(MetricFactory metricFactory, Collection<AuthenticationStrategy> authenticationStrategies) {
         return new Authenticator(ImmutableList.copyOf(authenticationStrategies), metricFactory);
     }
 
@@ -54,6 +56,13 @@ public class Authenticator {
             Flux.fromIterable(authMethods)
                 .concatMap(auth -> auth.createMailboxSession(request))
                 .next()
-                .switchIfEmpty(Mono.error(new UnauthorizedException("Unexpected error")))));
+                .switchIfEmpty(Mono.error(this::noAuthSupplied))));
+    }
+
+    private NoAuthorizationSuppliedException noAuthSupplied() {
+        return new NoAuthorizationSuppliedException(AuthenticateHeader.of(
+            authMethods.stream()
+                .map(AuthenticationStrategy::correspondingChallenge)
+                .collect(Guavate.toImmutableList())));
     }
 }

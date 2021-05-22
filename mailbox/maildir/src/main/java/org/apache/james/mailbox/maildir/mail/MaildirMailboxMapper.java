@@ -95,7 +95,7 @@ public class MaildirMailboxMapper extends NonTransactionalMapper implements Mail
                 }
                 return true;
             })
-            .switchIfEmpty(Mono.error(new MailboxNotFoundException(mailbox.generateAssociatedPath())))
+            .switchIfEmpty(Mono.error(() -> new MailboxNotFoundException(mailbox.generateAssociatedPath())))
             .then();
     }
 
@@ -130,7 +130,7 @@ public class MaildirMailboxMapper extends NonTransactionalMapper implements Mail
         return list()
             .filter(mailbox -> mailbox.getMailboxId().equals(id))
             .next()
-            .switchIfEmpty(Mono.error(new MailboxNotFoundException(id)));
+            .switchIfEmpty(Mono.error(() -> new MailboxNotFoundException(id)));
     }
     
     @Override
@@ -278,11 +278,6 @@ public class MaildirMailboxMapper extends NonTransactionalMapper implements Mail
                        .flatMap(Throwing.<File, Stream<Mailbox>>function(domain -> visitUsersForMailboxList(domain, domain.listFiles()).stream()).sneakyThrow()))
                .switchIfEmpty(Mono.fromCallable(() -> visitUsersForMailboxList(null, maildirRoot.listFiles()).stream()))
                .flatMapIterable(mailboxes -> mailboxes.collect(Guavate.toImmutableList()));
-    }
-
-    @Override
-    public void endRequest() {
-
     }
 
     private List<Mailbox> visitUsersForMailboxList(File domain, File[] users) throws MailboxException {

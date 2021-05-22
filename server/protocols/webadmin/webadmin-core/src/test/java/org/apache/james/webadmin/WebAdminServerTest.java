@@ -23,23 +23,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.CoreMatchers.is;
 
+import org.apache.james.metrics.tests.RecordingMetricFactory;
 import org.apache.james.util.Port;
-import org.junit.Test;
+import org.apache.james.webadmin.authentication.NoAuthenticationFilter;
+import org.apache.james.webadmin.mdc.LoggingRequestFilter;
+import org.junit.jupiter.api.Test;
+
+import com.google.common.collect.ImmutableList;
 
 import io.restassured.RestAssured;
 import spark.Service;
 
-public class WebAdminServerTest {
-
+class WebAdminServerTest {
     @Test
-    public void getPortShouldThrowWhenNotConfigured() {
-        WebAdminServer server = WebAdminUtils.createWebAdminServer();
+    void getPortShouldThrowWhenNotConfigured() {
+        WebAdminServer server = new WebAdminServer(
+            WebAdminConfiguration.TEST_CONFIGURATION,
+            ImmutableList.of(),
+            new NoAuthenticationFilter(),
+            new RecordingMetricFactory(),
+            LoggingRequestFilter.create());
         assertThatThrownBy(server::getPort)
             .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    public void getPortShouldReturnPortWhenConfigured() {
+    void getPortShouldReturnPortWhenConfigured() {
         WebAdminServer server = WebAdminUtils.createWebAdminServer().start();
 
         Port port = server.getPort();
@@ -48,13 +57,13 @@ public class WebAdminServerTest {
     }
 
     @Test
-    public void aSecondRouteWithSameEndpointShouldNotOverridePreviouslyDefinedRoutes() {
+    void aSecondRouteWithSameEndpointShouldNotOverridePreviouslyDefinedRoutes() {
         String firstAnswer = "1";
         String secondAnswer = "2";
         WebAdminServer server = WebAdminUtils.createWebAdminServer(
-            myPrivateRouteWithConstAnswer(firstAnswer),
-            myPrivateRouteWithConstAnswer(secondAnswer));
-        server.start();
+                myPrivateRouteWithConstAnswer(firstAnswer),
+                myPrivateRouteWithConstAnswer(secondAnswer))
+            .start();
 
         try {
             RestAssured.requestSpecification = WebAdminUtils.buildRequestSpecification(server)
@@ -71,13 +80,13 @@ public class WebAdminServerTest {
     }
 
     @Test
-    public void aSecondRouteWithSameEndpointShouldNotOverridePreviouslyDefinedRoutesWhenPublic() {
+    void aSecondRouteWithSameEndpointShouldNotOverridePreviouslyDefinedRoutesWhenPublic() {
         String firstAnswer = "1";
         String secondAnswer = "2";
         WebAdminServer server = WebAdminUtils.createWebAdminServer(
-            myPrivateRouteWithConstAnswer(firstAnswer),
-            myPublicRouteWithConstAnswer(secondAnswer));
-        server.start();
+                myPrivateRouteWithConstAnswer(firstAnswer),
+                myPublicRouteWithConstAnswer(secondAnswer))
+            .start();
 
         try {
             RestAssured.requestSpecification = WebAdminUtils.buildRequestSpecification(server)
@@ -94,13 +103,13 @@ public class WebAdminServerTest {
     }
 
     @Test
-    public void privateRoutesShouldBePrioritizedOverPublicRoutes() {
+    void privateRoutesShouldBePrioritizedOveroutes() {
         String firstAnswer = "1";
         String secondAnswer = "2";
         WebAdminServer server = WebAdminUtils.createWebAdminServer(
-            myPublicRouteWithConstAnswer(firstAnswer),
-            myPrivateRouteWithConstAnswer(secondAnswer));
-        server.start();
+                myPublicRouteWithConstAnswer(firstAnswer),
+                myPrivateRouteWithConstAnswer(secondAnswer))
+            .start();
 
         try {
             RestAssured.requestSpecification = WebAdminUtils.buildRequestSpecification(server)

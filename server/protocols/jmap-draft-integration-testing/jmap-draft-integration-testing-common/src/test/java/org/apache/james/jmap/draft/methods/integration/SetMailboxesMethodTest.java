@@ -34,7 +34,6 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.emptyOrNullString;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasKey;
@@ -84,6 +83,8 @@ public abstract class SetMailboxesMethodTest {
     private static final String DELETE_MESSAGES = String.valueOf(Right.DeleteMessages.asCharacter());
 
     private static final int MAILBOX_NAME_LENGTH_64K = 65536;
+    private MailboxId draftId;
+    private MailboxId outboxId;
 
     protected abstract GuiceJamesServer createJmapServer() throws IOException;
 
@@ -110,6 +111,10 @@ public abstract class SetMailboxesMethodTest {
         dataProbe.addDomain(DOMAIN);
         dataProbe.addUser(username.asString(), password);
         inboxId = mailboxProbe.createMailbox("#private", username.asString(), DefaultMailboxes.INBOX);
+        outboxId = mailboxProbe.createMailbox("#private", username.asString(), DefaultMailboxes.OUTBOX);
+        mailboxProbe.createMailbox("#private", username.asString(), DefaultMailboxes.TRASH);
+        mailboxProbe.createMailbox("#private", username.asString(), DefaultMailboxes.SENT);
+        draftId = mailboxProbe.createMailbox("#private", username.asString(), DefaultMailboxes.DRAFTS);
         accessToken = authenticateJamesUser(baseUri(jmapServer), username, password);
     }
 
@@ -606,11 +611,7 @@ public abstract class SetMailboxesMethodTest {
             .post("/jmap");
 
         assertThat(mailboxProbe.listSubscriptions(username.asString()))
-            .contains(DefaultMailboxes.OUTBOX,
-                DefaultMailboxes.SENT,
-                DefaultMailboxes.TRASH,
-                DefaultMailboxes.DRAFTS,
-                "mySecondBox");
+            .contains("mySecondBox");
     }
 
     @Test
@@ -635,10 +636,7 @@ public abstract class SetMailboxesMethodTest {
             .statusCode(200);
 
         assertThat(mailboxProbe.listSubscriptions(username.asString()))
-            .contains(DefaultMailboxes.OUTBOX,
-            DefaultMailboxes.SENT,
-            DefaultMailboxes.TRASH,
-            DefaultMailboxes.DRAFTS);
+            .isEmpty();
     }
 
     @Category(BasicFeature.class)
@@ -689,10 +687,7 @@ public abstract class SetMailboxesMethodTest {
             .statusCode(200);
 
         assertThat(mailboxProbe.listSubscriptions(username.asString()))
-            .contains(DefaultMailboxes.OUTBOX,
-                DefaultMailboxes.SENT,
-                DefaultMailboxes.TRASH,
-                DefaultMailboxes.DRAFTS);
+            .isEmpty();
     }
 
     @Test
@@ -953,10 +948,10 @@ public abstract class SetMailboxesMethodTest {
             .body(NAME, equalTo("mailboxesSet"))
             .body(ARGUMENTS + ".created", aMapWithSize(2))
             .body(ARGUMENTS + ".created", hasEntry(equalTo("create-id00"), Matchers.allOf(
-                    hasEntry(equalTo("parentId"), is(emptyOrNullString())),
+                    hasEntry(equalTo("parentId"), is(nullValue())),
                     hasEntry(equalTo("name"), equalTo("parent")))))
             .body(ARGUMENTS + ".created", hasEntry(equalTo("create-id01"), Matchers.allOf(
-                    hasEntry(equalTo("parentId"), not(is(emptyOrNullString()))),
+                    hasEntry(equalTo("parentId"), not(is(nullValue()))),
                     hasEntry(equalTo("name"), equalTo("child")))));
     }
 
@@ -990,10 +985,10 @@ public abstract class SetMailboxesMethodTest {
             .body(NAME, equalTo("mailboxesSet"))
             .body(ARGUMENTS + ".created", aMapWithSize(2))
             .body(ARGUMENTS + ".created", hasEntry(equalTo("create-id00"), Matchers.allOf(
-                    hasEntry(equalTo("parentId"), is(emptyOrNullString())),
+                    hasEntry(equalTo("parentId"), is(nullValue())),
                     hasEntry(equalTo("name"), equalTo("parent")))))
             .body(ARGUMENTS + ".created", hasEntry(equalTo("create-id01"), Matchers.allOf(
-                    hasEntry(equalTo("parentId"), not(is(emptyOrNullString()))),
+                    hasEntry(equalTo("parentId"), not(is(nullValue()))),
                     hasEntry(equalTo("name"), equalTo("child")))));
     }
 
@@ -2384,7 +2379,6 @@ public abstract class SetMailboxesMethodTest {
 
     @Test
     public void setMailboxesShouldReturnNotUpdatedWhenShareOutboxMailbox() {
-        MailboxId outboxId = mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, username.asString(), DefaultMailboxes.OUTBOX);
         String requestBody =
             "[" +
                 "  [ \"setMailboxes\"," +
@@ -2415,7 +2409,6 @@ public abstract class SetMailboxesMethodTest {
 
     @Test
     public void setMailboxesShouldReturnNotUpdatedWhenShareDraftMailbox() {
-        MailboxId draftId = mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, username.asString(), DefaultMailboxes.DRAFTS);
         String requestBody =
             "[" +
                 "  [ \"setMailboxes\"," +

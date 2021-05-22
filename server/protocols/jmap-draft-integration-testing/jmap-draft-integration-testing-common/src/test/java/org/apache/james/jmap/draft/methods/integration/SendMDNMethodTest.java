@@ -32,7 +32,7 @@ import static org.apache.james.jmap.JmapCommonRequests.getOutboxId;
 import static org.apache.james.jmap.JmapCommonRequests.listMessageIdsForAccount;
 import static org.apache.james.jmap.JmapCommonRequests.listMessageIdsInMailbox;
 import static org.apache.james.jmap.JmapURIBuilder.baseUri;
-import static org.awaitility.Duration.TWO_MINUTES;
+import static org.awaitility.Durations.TWO_MINUTES;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
@@ -98,6 +98,7 @@ public abstract class SendMDNMethodTest {
         dataProbe.addUser(HOMER.asString(), PASSWORD);
         dataProbe.addUser(BART.asString(), BOB_PASSWORD);
         mailboxProbe.createMailbox("#private", HOMER.asString(), DefaultMailboxes.INBOX);
+        mailboxProbe.createMailbox("#private", HOMER.asString(), DefaultMailboxes.OUTBOX);
         homerAccessToken = authenticateJamesUser(baseUri(jmapServer), HOMER, PASSWORD);
         bartAccessToken = authenticateJamesUser(baseUri(jmapServer), BART, BOB_PASSWORD);
     }
@@ -364,7 +365,7 @@ public abstract class SendMDNMethodTest {
             .get("/download/" + blobId)
         .then()
             .statusCode(200)
-            .body(containsString("Reporting-UA: reportingUA;"))
+            .body(containsString("Reporting-UA: reportingUA"))
             .body(containsString("Final-Recipient: rfc822; homer@domain.tld"))
             .body(containsString("Original-Message-ID: "))
             .body(containsString("Disposition: automatic-action/MDN-sent-automatically;processed"));

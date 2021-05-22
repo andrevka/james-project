@@ -34,8 +34,6 @@ We decided to write a new CLI client, running on top of the JVM, communicating w
 
   * server/protocols/webadmin-cli
 
-* Distribute this CLI as a GraalVM native image.
-
 * Write a man page.
 
   * Picocli generates beautiful documentation for our CLI (HTML, PDF and Unix man pages).
@@ -43,7 +41,7 @@ We decided to write a new CLI client, running on top of the JVM, communicating w
 * We decided to adopt a more modern, modular CLI syntax:
 
 ```   
-$ james-cli [OPTION] ENTITY ACTION {ARGUMENT}
+$ ./james-cli [OPTION] ENTITY ACTION {ARGUMENT}
 ```
 where
 
@@ -59,12 +57,12 @@ where
 
 Add a domain to the domain list.
 ```
-$ james-cli --url http://127.0.0.1 --port 9999 domain create domainNameToBeCreated
+$ ./james-cli --url http://127.0.0.1:9999 domain create domainNameToBeCreated
 ```
 
 In above command-line 
 
-    OPTION: --url http://127.0.0.1 --port 9999
+    OPTION: --url http://127.0.0.1:9999
   
     ENTITY: domain
   
@@ -82,3 +80,6 @@ It aims at providing a more modern and more secure CLI, also bringing compatibil
 * [Picocli 2.0: Do More With Less](https://dzone.com/articles/whats-new-in-picocli-20)
 * [Picocli Homepage](https://picocli.info/)
 * [Native Image Maven Plugin](https://www.graalvm.org/reference-manual/native-image/NativeImageMavenPlugin/)
+
+* [JIRA](https://issues.apache.org/jira/browse/JAMES-3400)
+* [PR discussing this ADR](https://github.com/apache/james-project/pull/251)

@@ -29,6 +29,7 @@ import org.apache.james.mock.smtp.server.model.MockSmtpBehaviors;
 import org.apache.james.mock.smtp.server.model.Operator;
 import org.apache.james.mock.smtp.server.model.Response;
 import org.apache.james.mock.smtp.server.model.SMTPCommand;
+import org.apache.james.mock.smtp.server.model.SMTPExtensions;
 import org.apache.james.util.Host;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,6 +42,7 @@ import com.google.common.collect.ImmutableList;
 import feign.Feign;
 import feign.Logger;
 import feign.RequestLine;
+import feign.Retryer;
 import feign.jackson.JacksonDecoder;
 import feign.jackson.JacksonEncoder;
 import feign.slf4j.Slf4jLogger;
@@ -167,6 +169,7 @@ public interface ConfigurationClient {
             .logLevel(Logger.Level.FULL)
             .encoder(new JacksonEncoder(OBJECT_MAPPER))
             .decoder(new JacksonDecoder(OBJECT_MAPPER))
+            .retryer(new Retryer.Default())
             .target(ConfigurationClient.class, "http://" + mockServerHttpHost.asString());
     }
 
@@ -184,8 +187,20 @@ public interface ConfigurationClient {
     @RequestLine("GET " + HTTPConfigurationServer.SMTP_BEHAVIORS)
     List<MockSMTPBehavior> listBehaviors();
 
+    @RequestLine("PUT " + HTTPConfigurationServer.SMTP_EXTENSIONS)
+    void setSMTPExtensions(SMTPExtensions extensions);
+
+    @RequestLine("DELETE " + HTTPConfigurationServer.SMTP_EXTENSIONS)
+    void clearSMTPExtensions();
+
+    @RequestLine("GET " + HTTPConfigurationServer.SMTP_EXTENSIONS)
+    SMTPExtensions listSMTPExtensions();
+
     @RequestLine("GET " + HTTPConfigurationServer.SMTP_MAILS)
     List<Mail> listMails();
+
+    @RequestLine("GET " + HTTPConfigurationServer.VERSION)
+    String version();
 
     @RequestLine("DELETE " + HTTPConfigurationServer.SMTP_MAILS)
     void clearMails();
@@ -197,6 +212,7 @@ public interface ConfigurationClient {
     default void cleanServer() {
         clearBehaviors();
         clearMails();
+        clearSMTPExtensions();
     }
 
     default BehaviorsParamsBuilder.CommandStep addNewBehavior() {
