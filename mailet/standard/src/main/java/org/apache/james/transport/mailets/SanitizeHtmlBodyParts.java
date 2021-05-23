@@ -160,9 +160,12 @@ public class SanitizeHtmlBodyParts extends GenericMailet {
     }
 
     private void sanitizeBodyPart(BodyPart bodyPart) throws MessagingException, IOException {
-        if ("text/html".equals(bodyPart.getContentType())) {
+        if (bodyPart.isMimeType("text/html")) {
             final String sanitizeHtml = sanitizeHtml((String) bodyPart.getContent());
             bodyPart.setContent(sanitizeHtml, bodyPart.getContentType());
+        }
+        if (bodyPart.isMimeType("multipart/*")) {
+            sanitizeMultipart((Multipart) bodyPart.getContent());
         }
     }
 
