@@ -34,6 +34,7 @@ import com.github.fge.lambdas.functions.intfunctions.ThrowingIntFunction;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.function.Predicate;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -47,6 +48,13 @@ import java.util.stream.Stream;
  * </code></pre>
  */
 public class SanitizeHtmlBodyParts extends GenericMailet {
+
+    public static final String ATTRIBUTES_PROPERTY_INVALID = "Attributes not specified correctly for SanitizeHtmlBodyParts mailet";
+    public static final String ENFORCED_ATTRIBUTES_PROPERTY_INVALID = "Enforced attributes not specified correctly for SanitizeHtmlBodyParts mailet";
+    public static final String PROTOCOLS_PROPERTY_INVALID = "Protocols not specified correctly for SanitizeHtmlBodyParts mailet";
+
+    public static final String REMOVE_PROTOCOLS_PROPERTY_INVALID = "Remove protocols not specified correctly for SanitizeHtmlBodyParts mailet";
+    public static final String REMOVE_ENFORCED_ATTRIBUTES_PROPERTY_INVALID = "Remove enforced attributes not specified correctly for SanitizeHtmlBodyParts mailet";
 
     enum SanitizerLevel {
 
@@ -85,20 +93,44 @@ public class SanitizeHtmlBodyParts extends GenericMailet {
 
     private void addRestrictions() {
         getValues("tags").forEach(whitelist::addTags);
-        getValues("attributes").forEach(whitelist::addAttributes);
+        getValues("attributes")
+            .map(attributes -> attributes.split(":"))
+            .forEach(this::addAttributesToWhitelist);
         getValues("enforcedAttributes")
             .map(enforcedAttribute -> enforcedAttribute.split(":"))
-            .forEach(enforcedAttributeParams ->
-                whitelist
-                    .addEnforcedAttribute(enforcedAttributeParams[0], enforcedAttributeParams[1],
-                        enforcedAttributeParams[2])
-            );
+            .forEach(this::addEnforcedttributesToWhitelist);
         getValues("protocols")
             .map(protocols -> protocols.split(":"))
-            .forEach(protocolParams ->
-                whitelist.addProtocols(protocolParams[0], protocolParams[1],
-                    Arrays.copyOfRange(protocolParams, 2, protocolParams.length))
-            );
+            .forEach(this::addProtocolsToWhitelist);
+    }
+
+    private Whitelist addProtocolsToWhitelist(String[] protocolParams) {
+        try {
+            return whitelist.addProtocols(protocolParams[0], protocolParams[1],
+                Arrays.copyOfRange(protocolParams, 2, protocolParams.length));
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new RuntimeException(PROTOCOLS_PROPERTY_INVALID);
+        }
+    }
+
+    private Whitelist addEnforcedttributesToWhitelist(String[] enforcedAttributeParams) {
+        try {
+            return whitelist
+                .addEnforcedAttribute(enforcedAttributeParams[0], enforcedAttributeParams[1],
+                    enforcedAttributeParams[2]);
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new RuntimeException(ENFORCED_ATTRIBUTES_PROPERTY_INVALID);
+        }
+
+    }
+
+    private Whitelist addAttributesToWhitelist(String[] attributes) {
+        try {
+            return whitelist
+                .addAttributes(attributes[0], Arrays.copyOfRange(attributes, 1, attributes.length));
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new RuntimeException(ATTRIBUTES_PROPERTY_INVALID);
+        }
     }
 
     private void removeRestrictions() {
@@ -106,16 +138,29 @@ public class SanitizeHtmlBodyParts extends GenericMailet {
         getValues("removeAttributes").forEach(whitelist::removeAttributes);
         getValues("removeEnforcedAttributes")
             .map(enforcedAttribute -> enforcedAttribute.split(":"))
-            .forEach(enforcedAttributeParams ->
-                whitelist
-                    .removeEnforcedAttribute(enforcedAttributeParams[0], enforcedAttributeParams[1])
-            );
+            .forEach(this::removeEnforcedAttributesFromWhitelist);
         getValues("removeProtocols")
             .map(protocol -> protocol.split(":"))
-            .forEach(protocolParams ->
-                whitelist.removeProtocols(protocolParams[0], protocolParams[1],
-                    Arrays.copyOfRange(protocolParams, 2, protocolParams.length))
-            );
+            .forEach(this::removeProtocolsFromWhitelist);
+    }
+
+    private Whitelist removeProtocolsFromWhitelist(String[] protocolParams) {
+        try {
+            return whitelist.removeProtocols(protocolParams[0], protocolParams[1],
+                Arrays.copyOfRange(protocolParams, 2, protocolParams.length));
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new RuntimeException(REMOVE_PROTOCOLS_PROPERTY_INVALID);
+        }
+
+    }
+
+    private Whitelist removeEnforcedAttributesFromWhitelist(String[] enforcedAttributeParams) {
+        try {
+            return whitelist
+                .removeEnforcedAttribute(enforcedAttributeParams[0], enforcedAttributeParams[1]);
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new RuntimeException(REMOVE_ENFORCED_ATTRIBUTES_PROPERTY_INVALID);
+        }
     }
 
     private Stream<String> getValues(String initParamName) {
@@ -123,7 +168,8 @@ public class SanitizeHtmlBodyParts extends GenericMailet {
             .map(allValues -> allValues.split(","))
             .stream()
             .flatMap(Stream::of)
-            .map(String::strip);
+            .map(String::strip)
+            .filter(Predicate.not(String::isBlank));
     }
 
     @Override
